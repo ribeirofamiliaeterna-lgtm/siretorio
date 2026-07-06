@@ -24,7 +24,7 @@
     .btn-g{background:#F0FDF4;color:#15803D;border:1px solid #BBF7D0}
     .chip{display:inline-block;border-radius:99px;padding:2px 9px;font-size:11px;font-weight:700;white-space:nowrap}
     .page{max-width:680px;margin:0 auto;padding:14px 14px 90px}
-    .nav{position:fixed;bottom:0;left:0;right:0;background:#FFF;border-top:1px solid #E2E8F0;display:flex;justify-content:space-around;padding:6px 4px calc(6px + env(safe-area-inset-bottom));z-index:50}
+    .nav{position:fixed;bottom:0;left:0;right:0;background:#FFF;border-top:1px solid #E2E8F0;display:flex;justify-content:space-around;padding:6px 4px calc(6px + env(safe-area-inset-bottom));z-index:50;overflow-x:auto}
     .nav button{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:10px;font-weight:700;color:#94A3B8;padding:4px 8px;border-radius:10px}
     .nav button.on{color:#2563EB;background:#EFF6FF}
     .nav button span.ic{font-size:19px}
@@ -46,6 +46,11 @@
     .modal{background:#FFF;border-radius:18px 18px 0 0;width:100%;max-width:560px;max-height:88vh;overflow-y:auto;padding:18px}
     @media(min-width:768px){.modal{border-radius:18px}}
     .lbl{font-size:12px;font-weight:700;color:#475569;margin:10px 0 4px;display:block}
+    @media print{
+      .nav,.no-print{display:none!important}
+      .page{padding:0;max-width:100%}
+      body{background:#FFF}
+    }
   </style>
 </head>
 <body>

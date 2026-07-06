@@ -6,9 +6,11 @@ import { Diretorio } from './diretorio.js';
 import { Qualificacao } from './qualificacao.js';
 import { Transmissao } from './transmissao.js';
 import { Master } from './master.js';
+import { Agenda } from './agenda.js';
 
 const ROTAS = [
   { id: 'dashboard',    ic: '📊', l: 'Painel',      c: Dashboard },
+  { id: 'agenda',       ic: '📋', l: 'Agenda',      c: Agenda },
   { id: 'rodizio',      ic: '🗓️', l: 'Rodízio',     c: Rodizio },
   { id: 'diretorio',    ic: '📖', l: 'Diretório',   c: Diretorio },
   { id: 'qualificacao', ic: '🏠', l: 'Qualificação', c: Qualificacao },
@@ -91,7 +93,7 @@ function Shell({ session }) {
         </button>`)}
     </nav>
     <main class="page">
-      <div style=${{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+      <div class="no-print" style=${{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <div>
           <div style=${{ fontSize: 12, color: '#64748B', fontWeight: 600 }}>
             ${perfil.alas?.nome || 'Painel geral'}${perfil.papel === 'master' ? ' · Master' : ''}

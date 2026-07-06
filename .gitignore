@@ -9,3 +9,4 @@ ala-qualificacao.html
 .claude-flow/
 node_modules/
 .DS_Store
+.gstack/
