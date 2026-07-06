@@ -1,0 +1,11 @@
+# Segredos — nunca commitar
+.env
+
+# Dados pessoais dos membros — nunca publicar no repositório
+backup/
+ala-qualificacao.html
+
+# Ferramentas locais
+.claude-flow/
+node_modules/
+.DS_Store
