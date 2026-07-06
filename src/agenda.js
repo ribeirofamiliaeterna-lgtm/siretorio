@@ -51,7 +51,8 @@ export function PersonPicker({ membros, membroId, nomeLivre, onPick }) {
   }, [q, editando, membros]);
 
   const confirmarTexto = () => {
-    const t = (q || '').trim();
+    if (q === null) return;   // não estava editando (ex.: blur logo após escolher no autocompletar)
+    const t = q.trim();
     if (t !== display) onPick(t ? { membro_id: null, nome_livre: t } : { membro_id: null, nome_livre: '' });
     setQ(null);
   };
