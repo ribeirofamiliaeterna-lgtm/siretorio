@@ -1,12 +1,12 @@
 import { html, render, useState, useEffect, sb, Spinner, useToast, Rodape } from './core.js';
-import { IcPainel, IcAgenda, IcFrequencia, IcDiretorio, IcCasa, IcTv, IcGlobo, IcChave, IcSair } from './icons.js';
+import { IcPainel, IcAgenda, IcFrequencia, IcDiretorio, IcCasa, IcTv, IcGlobo, IcChave, IcSair, IcEscudo } from './icons.js';
 import { Login } from './login.js';
 import { Dashboard } from './dashboard.js';
 import { Frequencia } from './frequencia.js';
 import { Diretorio } from './diretorio.js';
 import { Qualificacao } from './qualificacao.js';
 import { Transmissao } from './transmissao.js';
-import { Master } from './master.js';
+import { Master, AdminAla } from './master.js';
 import { Agenda } from './agenda.js';
 
 const ROTAS = [
@@ -61,13 +61,15 @@ function Shell({ session }) {
   const [erro, setErro] = useState('');
   const [menuSenha, setMenuSenha] = useState(false);
   const [permMap, setPermMap] = useState(null);
+  const [alas, setAlas] = useState([]);       // lista completa, só para o master trocar de ala
+  const [verAla, setVerAla] = useState(null); // ala que o master está visualizando/editando agora
   const [toastEl, show] = useToast();
   const rota = useHash();
 
   useEffect(() => {
     (async () => {
       const { data, error } = await sb.from('profiles')
-        .select('id, nome, email, papel, ala_id, alas(id, nome, slug)')
+        .select('id, nome, email, papel, ala_id, admin_ala, alas(id, nome, slug)')
         .eq('id', session.user.id).single();
       if (error) return setErro(error.message);
       if (!data.ala_id && data.papel !== 'master') return setErro('Seu usuário ainda não está vinculado a uma ala. Fale com o administrador.');
@@ -77,7 +79,11 @@ function Shell({ session }) {
 
   useEffect(() => {
     if (!perfil) return;
-    if (perfil.papel === 'master') { setPermMap({}); return; }
+    if (perfil.papel === 'master') {
+      setPermMap({});
+      sb.from('alas').select('id, nome, slug').order('nome').then(({ data }) => setAlas(data || []));
+      return;
+    }
     sb.from('permissoes_perfil').select('modulo, nivel').eq('perfil_id', perfil.id)
       .then(({ data }) => setPermMap(Object.fromEntries((data || []).map(p => [p.modulo, p.nivel]))));
   }, [perfil?.id]);
@@ -91,11 +97,14 @@ function Shell({ session }) {
 
   // Sem linha de permissão para o módulo = acesso total (compatibilidade).
   const nivelDe = m => perfil.papel === 'master' ? 'editar' : (permMap[m] ?? 'editar');
+  const ehMaster = perfil.papel === 'master';
 
-  const todasRotas = perfil.papel === 'master'
-    ? [...ROTAS, { id: 'master', Ic: IcGlobo, l: 'Alas', c: Master }]
-    : ROTAS;
-  const rotas = todasRotas.filter(r => r.id === 'master' || nivelDe(r.id) !== 'nenhum');
+  // O master só enxerga os módulos normais (Painel, Agenda…) depois de
+  // "entrar" numa ala pelo painel Alas — antes disso, navega apenas entre as alas.
+  const todasRotas = ehMaster
+    ? (verAla ? [...ROTAS, { id: 'master', Ic: IcGlobo, l: 'Alas', c: Master }] : [{ id: 'master', Ic: IcGlobo, l: 'Alas', c: Master }])
+    : (perfil.admin_ala ? [...ROTAS, { id: 'usuarios', Ic: IcEscudo, l: 'Usuários', c: AdminAla }] : ROTAS);
+  const rotas = todasRotas.filter(r => r.id === 'master' || r.id === 'usuarios' || nivelDe(r.id) !== 'nenhum');
 
   if (rotas.length === 0) return html`
     <div class="page"><div class="card" style=${{ padding: 20, color: 'var(--tinta2)' }}>
@@ -104,6 +113,9 @@ function Shell({ session }) {
     </div></div>`;
 
   const atual = rotas.find(r => r.id === rota) || rotas[0];
+  // Perfil "efetivo": quando o master está dentro de uma ala, os módulos
+  // enxergam aquela ala como se fosse a própria — a RLS já libera a escrita.
+  const perfilEfetivo = ehMaster && verAla ? { ...perfil, ala_id: verAla.id, alas: verAla } : perfil;
 
   return html`
     ${toastEl}
@@ -114,9 +126,19 @@ function Shell({ session }) {
         </button>`)}
     </nav>
     <main class="page">
-      <div class="no-print" style=${{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-        <div class="serif" style=${{ fontSize: 13, color: 'var(--tinta2)', fontStyle: 'italic' }}>
-          ${perfil.alas?.nome || 'Painel geral'}${perfil.papel === 'master' ? ' · administrador' : ''}
+      <div class="no-print" style=${{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, gap: 8, flexWrap: 'wrap' }}>
+        <div style=${{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <div class="serif" style=${{ fontSize: 13, color: 'var(--tinta2)', fontStyle: 'italic' }}>
+            ${ehMaster && verAla ? verAla.nome : (perfil.alas?.nome || 'Painel geral')}${ehMaster ? ' · administrador' : ''}
+          </div>
+          ${ehMaster && verAla && html`
+            <select class="inp" style=${{ width: 'auto', padding: '4px 8px', fontSize: 11.5 }}
+              value=${verAla.id} onChange=${e => setVerAla(alas.find(a => a.id === e.target.value) || null)}>
+              ${alas.map(a => html`<option value=${a.id}>${a.nome}</option>`)}
+            </select>
+            <button class="btn btn-s" style=${{ padding: '4px 8px', fontSize: 11.5 }} onClick=${() => { setVerAla(null); location.hash = '#/master'; }}>
+              <${IcGlobo} size=${12} /> Ver todas as alas
+            </button>`}
         </div>
         <div style=${{ display: 'flex', gap: 6 }}>
           <button class="btn btn-s" style=${{ padding: '6px 10px', fontSize: 12 }} onClick=${() => setMenuSenha(true)}>
@@ -128,8 +150,10 @@ function Shell({ session }) {
         </div>
       </div>
       ${atual.id === 'master'
-        ? html`<${atual.c} perfil=${perfil} show=${show} />`
-        : html`<${atual.c} perfil=${perfil} show=${show} readOnly=${nivelDe(atual.id) === 'visualizar'} />`}
+        ? html`<${atual.c} perfil=${perfil} show=${show} onEntrar=${a => { setVerAla(a); location.hash = '#/dashboard'; }} />`
+        : atual.id === 'usuarios'
+          ? html`<${atual.c} perfil=${perfil} show=${show} />`
+          : html`<${atual.c} perfil=${perfilEfetivo} show=${show} readOnly=${nivelDe(atual.id) === 'visualizar'} />`}
       <div class="no-print"><${Rodape}/></div>
     </main>
     ${menuSenha && html`<${TrocarSenha} onClose=${() => setMenuSenha(false)} show=${show} />`}`;

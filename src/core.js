@@ -1,6 +1,7 @@
 // Núcleo compartilhado: cliente Supabase, utilitários e componentes básicos.
 import { h, render } from 'https://esm.sh/preact@10';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'https://esm.sh/preact@10/hooks';
+import { createPortal } from 'https://esm.sh/preact@10/compat';
 import { html } from 'https://esm.sh/htm@3/preact';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
@@ -76,15 +77,36 @@ export const Rodape = () => html`
     ${AVISO_NAO_OFICIAL}
   </div>`;
 
-// Selo "i" com explicação do cálculo (hover no computador, toque no celular)
+// Selo "i" com explicação do cálculo (hover no computador, toque no celular).
+// O texto é renderizado num portal para <body>: assim ele nunca fica
+// escondido atrás de outro card/modal por causa do overflow:hidden do
+// ancestral — sempre aparece na camada mais alta da tela.
 export function InfoTip({ texto }) {
-  const [aberto, setAberto] = useState(false);
+  const [pos, setPos] = useState(null);
+  const ref = useRef(null);
+
+  const mostrar = () => {
+    const r = ref.current.getBoundingClientRect();
+    setPos({ bottom: window.innerHeight - r.top + 8, left: r.left + r.width / 2 });
+  };
+  const esconder = () => setPos(null);
+
+  useEffect(() => {
+    if (!pos) return;
+    addEventListener('scroll', esconder, true);
+    addEventListener('resize', esconder);
+    return () => { removeEventListener('scroll', esconder, true); removeEventListener('resize', esconder); };
+  }, [pos]);
+
   return html`
-    <span class=${`infotip${aberto ? ' aberto' : ''}`} tabindex="0"
-      onClick=${e => { e.stopPropagation(); setAberto(a => !a); }}
-      onBlur=${() => setAberto(false)}>
+    <span ref=${ref} class=${`infotip${pos ? ' aberto' : ''}`} tabindex="0"
+      onClick=${e => { e.stopPropagation(); pos ? esconder() : mostrar(); }}
+      onMouseEnter=${mostrar} onMouseLeave=${esconder}
+      onFocus=${mostrar} onBlur=${esconder}>
       <${IcInfo} size=${14} />
-      <span class="pop">${texto}</span>
+      ${pos && createPortal(html`
+        <div class="infotip-pop" style=${{ bottom: `${pos.bottom}px`, left: `${pos.left}px` }}>${texto}</div>`,
+        document.body)}
     </span>`;
 }
 

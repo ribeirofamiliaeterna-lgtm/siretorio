@@ -5,6 +5,155 @@ const SETORES = ['Areal', 'Arniqueiras', 'Park Way', 'AC Sul', 'AC Norte', 'Águ
 const SETOR_LEGADO = { AR: 'Areal', SHA: 'Arniqueiras', PW: 'Park Way', ACS: 'AC Sul', ACN: 'AC Norte', AC: 'Águas Claras', TAG: 'Taguatinga', OUT: 'Outros' };
 export const setorNome = s => SETOR_LEGADO[s] || s || '—';
 
+// ─── Leitura do PDF "Lista de Membros" exportado pelo sistema da Igreja ──
+// O relatório tem duas colunas por família: "Nome" (sobrenome/chefe, telefone,
+// endereço) à esquerda e "Membros da Família / Sexo / Idade" à direita. Nomes
+// longos quebram em 2+ linhas na coluna da direita, com o sexo aparecendo
+// sozinho numa linha própria — por isso a extração separa as colunas pela
+// posição X (calibrada pela própria palavra "Membros" do cabeçalho da tabela,
+// que se repete em cada página) e reconstrói cada família casando o Y do
+// cabeçalho (coluna esquerda) com o Y de início do 1º membro (coluna direita,
+// sempre alinhados no topo da linha da tabela).
+export const PDFJS_VERSAO = '3.11.174';
+let pdfjsPromise = null;
+async function carregarPDFJS() {
+  if (!pdfjsPromise) pdfjsPromise = (async () => {
+    const mod = await import(/* @vite-ignore */ `https://esm.sh/pdfjs-dist@${PDFJS_VERSAO}`);
+    const pdfjs = mod.default;
+    pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${PDFJS_VERSAO}/build/pdf.worker.min.js`;
+    return pdfjs;
+  })();
+  return pdfjsPromise;
+}
+
+const RE_BOILERPLATE_PDF = [
+  /^Lista de Membros$/i,
+  /^Ala\s.+\(\d+\)$/,
+  /^Nome$/i,
+  /^Nome\s+Membros da Família/i,
+  /^Membros da Família$/i,
+  /^Sexo$/i,
+  /^Idade$/i,
+  /Somente para Uso da Igreja/i,
+  /Intellectual Reserve/i,
+  /^Contagem:\s*\d+$/i,
+];
+// Cabeçalho de família: "Sobrenome[ Sobrenome2], resto" — só letras (sem
+// dígitos) e Maiúscula-minúscula (afasta linhas em CAIXA ALTA como "SHA" e
+// endereços como "Rua 37, 34", que têm dígito antes da vírgula). Linhas de
+// endereço com nomes próprios antes da vírgula (ex.: "Res Bosque Dourado,
+// Casa 49", "Mirante San Francisco, Apto 1801") passam nesse filtro, mas o
+// texto depois da vírgula sempre tem número — por isso a checagem extra em
+// `pareceCabecalho` exige que o "chefe" não tenha dígito.
+const RE_CABECALHO_PDF = /^\p{Lu}[\p{Ll}'.-]+(?:\s\p{Lu}[\p{Ll}'.-]+)*,\s*(.*)$/u;
+function pareceCabecalho(texto) {
+  const m = texto.match(RE_CABECALHO_PDF);
+  return !!m && !/\d/.test(m[1]);
+}
+const RE_SEXO_PDF = /(masculino|feminino)(?:\s+(\d{1,3}))?\s*$/i;
+const RE_TELEFONE_PDF = /^[\d()+.\-\s]{6,}$/;
+
+// Agrupa itens do pdf.js em "linhas" (mesma coordenada Y, tolerância p/
+// jitter de sub-pixel), ordenadas de cima para baixo; dentro da linha,
+// ordena por X e só insere espaço quando há um vão real entre os itens.
+function agruparLinhasPorY(itens) {
+  const grupos = [];
+  itens.forEach(it => {
+    const y = it.transform[5];
+    let g = grupos.find(g => Math.abs(g.y - y) <= 2.5);
+    if (!g) { g = { y, itens: [] }; grupos.push(g); }
+    g.itens.push(it);
+  });
+  grupos.sort((a, b) => b.y - a.y);
+  return grupos.map(g => {
+    const ordenados = [...g.itens].sort((a, b) => a.transform[4] - b.transform[4]);
+    let texto = '', fimAnterior = null;
+    ordenados.forEach(it => {
+      const x = it.transform[4];
+      texto += (fimAnterior !== null && x - fimAnterior > 1 ? ' ' : '') + it.str;
+      fimAnterior = x + (it.width || 0);
+    });
+    return { y: g.y, texto: texto.replace(/\s+/g, ' ').trim() };
+  }).filter(l => l.texto && !RE_BOILERPLATE_PDF.some(re => re.test(l.texto)));
+}
+
+// Na coluna "Membros da Família", quem tem o mesmo sobrenome da família
+// aparece só com o(s) nome(s) próprio(s) (sem repetir o sobrenome); quem tem
+// sobrenome diferente (cônjuge, enteado etc.) aparece como "Sobrenome, Nome".
+function reconstruirNomeMembroPDF(nomeBruto, sobrenomeFamilia) {
+  const iv = nomeBruto.indexOf(',');
+  if (iv < 0) return `${nomeBruto} ${sobrenomeFamilia}`.trim();
+  const sobrenome = nomeBruto.slice(0, iv).trim();
+  const nome = nomeBruto.slice(iv + 1).trim();
+  return `${nome} ${sobrenome}`.trim();
+}
+
+// Recebe as linhas já separadas por coluna (de uma página) e devolve as
+// famílias encontradas nela.
+export function extrairFamiliasDaPagina(esquerda, direita) {
+  const cabecalhos = [];
+  esquerda.forEach((l, idx) => { if (pareceCabecalho(l.texto)) cabecalhos.push({ ...l, idx }); });
+
+  return cabecalhos.map((cab, i) => {
+    const proximoY = i + 1 < cabecalhos.length ? cabecalhos[i + 1].y : -Infinity;
+    const linhasInfo = esquerda.filter(l => l.y < cab.y - 0.01 && l.y > proximoY + 0.01).map(l => l.texto);
+    const linhasMembros = direita.filter(l => l.y <= cab.y + 0.01 && l.y > proximoY + 0.01).map(l => l.texto);
+
+    const iv = cab.texto.indexOf(',');
+    const sobrenome = iv >= 0 ? cab.texto.slice(0, iv).trim() : cab.texto.trim();
+    const chefe = iv >= 0 ? cab.texto.slice(iv + 1).trim() : '';
+
+    let telefone = '';
+    const enderecoLinhas = [];
+    linhasInfo.forEach(l => { if (!telefone && RE_TELEFONE_PDF.test(l)) telefone = l; else enderecoLinhas.push(l); });
+
+    // Nomes longos quebram em mais de uma linha na coluna da direita; o sexo
+    // (e a idade) só aparece na última linha do membro, então acumula-se o
+    // texto até encontrar essa linha final.
+    const membros = [];
+    let buffer = [];
+    linhasMembros.forEach(l => {
+      const m = l.match(RE_SEXO_PDF);
+      if (!m) { buffer.push(l); return; }
+      const prefixo = l.slice(0, m.index).trim();
+      const nomeCompleto = [...buffer, prefixo].filter(Boolean).join(' ');
+      if (nomeCompleto) membros.push({
+        nome: reconstruirNomeMembroPDF(nomeCompleto, sobrenome),
+        sexo: m[1].toLowerCase() === 'feminino' ? 'F' : 'M',
+        idade: m[2] ? Number(m[2]) : null,
+      });
+      buffer = [];
+    });
+
+    const endereco = enderecoLinhas.map(l => l.replace(/,\s*$/, '')).join(', ');
+    return {
+      sobrenome, chefe, telefone, endereco,
+      setor: SETORES.find(s => norm(endereco).includes(norm(s))) || '',
+      membros,
+    };
+  }).filter(f => f.membros.length > 0);
+}
+
+async function lerDiretorioPDF(file) {
+  const pdfjs = await carregarPDFJS();
+  const doc = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+  const familias = [];
+  for (let p = 1; p <= doc.numPages; p++) {
+    const page = await doc.getPage(p);
+    const content = await page.getTextContent();
+    const itens = content.items.filter(it => it.str && it.str.trim());
+    if (itens.length === 0) continue;
+
+    const itemMembros = itens.find(it => norm(it.str).includes('membros'));
+    const xLimite = itemMembros ? itemMembros.transform[4] - 4 : page.getViewport({ scale: 1 }).width * 0.44;
+
+    const esquerda = agruparLinhasPorY(itens.filter(it => it.transform[4] < xLimite));
+    const direita = agruparLinhasPorY(itens.filter(it => it.transform[4] >= xLimite));
+    familias.push(...extrairFamiliasDaPagina(esquerda, direita));
+  }
+  return familias;
+}
+
 // ─── Formulário de família ───────────────────────────────────────────────
 function FormFamilia({ perfil, fam, membros, onClose, onSaved, show }) {
   const [f, setF] = useState(fam || { sobrenome: '', chefe: '', telefone: '', endereco: '', setor: '' });
@@ -103,26 +252,34 @@ function SubstituirDiretorio({ perfil, fams, membros, onClose, onDone, show }) {
   const analisar = async file => {
     setBusy(true);
     try {
-      const X = await carregarXLSX();
-      const wb = X.read(await file.arrayBuffer());
-      const linhas = X.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: true }).slice(1)
-        .filter(r => r && String(r[0] || '').trim());
-      if (linhas.length === 0) throw new Error('Nenhuma linha encontrada — a planilha deve seguir o modelo exportado.');
-
-      const famNovas = new Map();          // chave sobrenome|chefe → dados + membros
-      for (const r of linhas) {
-        const [sobrenome, chefe, telefone, endereco, setor, nomeMembro, sexo, idade] = r.map(v => v == null ? '' : String(v).trim());
-        const k = `${norm(sobrenome)}|${norm(chefe)}`;
-        if (!famNovas.has(k)) famNovas.set(k, { sobrenome, chefe, telefone, endereco, setor, membros: [] });
-        if (nomeMembro) famNovas.get(k).membros.push({ nome: nomeMembro, sexo: ['M', 'F'].includes(sexo.toUpperCase()) ? sexo.toUpperCase() : '', idade: idade ? Number(idade) || null : null });
+      let listaFamilias;   // [{ sobrenome, chefe, telefone, endereco, setor, membros: [{nome,sexo,idade}] }]
+      if (file.name.toLowerCase().endsWith('.pdf')) {
+        listaFamilias = await lerDiretorioPDF(file);
+        if (listaFamilias.length === 0) throw new Error('Nenhuma família reconhecida no PDF — confira se é o modelo "Lista de Membros" exportado pelo sistema da Igreja.');
+      } else {
+        const X = await carregarXLSX();
+        const wb = X.read(await file.arrayBuffer());
+        const linhas = X.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: true }).slice(1)
+          .filter(r => r && String(r[0] || '').trim());
+        if (linhas.length === 0) throw new Error('Nenhuma linha encontrada — a planilha deve seguir o modelo exportado.');
+        const porChave = new Map();
+        for (const r of linhas) {
+          const [sobrenome, chefe, telefone, endereco, setor, nomeMembro, sexo, idade] = r.map(v => v == null ? '' : String(v).trim());
+          const k = `${norm(sobrenome)}|${norm(chefe)}`;
+          if (!porChave.has(k)) porChave.set(k, { sobrenome, chefe, telefone, endereco, setor, membros: [] });
+          if (nomeMembro) porChave.get(k).membros.push({ nome: nomeMembro, sexo: ['M', 'F'].includes(sexo.toUpperCase()) ? sexo.toUpperCase() : '', idade: idade ? Number(idade) || null : null });
+        }
+        listaFamilias = [...porChave.values()];
       }
 
+      const famNovas = new Map(listaFamilias.map(f => [`${norm(f.sobrenome)}|${norm(f.chefe)}`, f]));
       const famAtualPorChave = new Map(fams.map(f => [`${norm(f.sobrenome)}|${norm(f.chefe)}`, f]));
       const membroPorNome = new Map(membros.filter(m => m.ativo).map(m => [norm(m.nome), m]));
       const nomesImportados = new Set();
-      let novosMembros = 0, atualizados = 0, novasFamilias = 0;
+      const novas = [], mantidas = [];
+      let novosMembros = 0, atualizados = 0;
       famNovas.forEach((fn, k) => {
-        if (!famAtualPorChave.has(k)) novasFamilias++;
+        (famAtualPorChave.has(k) ? mantidas : novas).push(fn);
         fn.membros.forEach(m => {
           nomesImportados.add(norm(m.nome));
           if (membroPorNome.has(norm(m.nome))) atualizados++; else novosMembros++;
@@ -130,8 +287,8 @@ function SubstituirDiretorio({ perfil, fams, membros, onClose, onDone, show }) {
       });
       const saem = membros.filter(m => m.ativo && m.situacao === 'diretorio' && !nomesImportados.has(norm(m.nome)));
       const retornam = membros.filter(m => m.ativo && m.situacao === 'fora_diretorio' && nomesImportados.has(norm(m.nome))).length;
-      setPlano({ famNovas, novasFamilias, novosMembros, atualizados, saem, retornam });
-    } catch (e) { show(`Erro ao ler a planilha: ${e.message}`, false); }
+      setPlano({ famNovas, novas, mantidas, novosMembros, atualizados, saem, retornam });
+    } catch (e) { show(`Erro ao ler o arquivo: ${e.message}`, false); }
     setBusy(false);
   };
 
@@ -174,34 +331,62 @@ function SubstituirDiretorio({ perfil, fams, membros, onClose, onDone, show }) {
   return html`<${Modal} onClose=${onClose}>
     <div class="titulo-secao">Substituir diretório</div>
     <div style=${{ fontSize: 12.5, color: 'var(--tinta2)', margin: '6px 0 14px', lineHeight: 1.6 }}>
-      Use quando receber a lista atualizada da ala. Nada é apagado:
-      quem já existe é <strong>atualizado</strong> (sem duplicar), quem chegou é <strong>incluído</strong> e
-      quem não consta mais recebe o selo <strong>Fora do diretório</strong> — permanecendo nos relatórios e no histórico.
-      Membros adicionados manualmente não são afetados.
+      Use quando receber a lista atualizada da ala — pode enviar direto o <strong>PDF "Lista de Membros"</strong> exportado
+      pelo sistema da Igreja, ou uma planilha no modelo abaixo. Nada é apagado: as famílias <strong>repetidas serão mantidas</strong>,
+      as <strong>novas serão incluídas</strong> e as que não constarem mais na lista <strong>ganham o selo "Fora do diretório"</strong> —
+      permanecendo nos relatórios e no histórico. Membros adicionados manualmente não são afetados.
     </div>
     <button class="btn btn-s" style=${{ width: '100%', fontSize: 12.5, marginBottom: 8 }} onClick=${exportarAtual}>
-      <${IcBaixar} size=${14} /> 1. Baixar diretório atual (modelo)
+      <${IcBaixar} size=${14} /> Baixar diretório atual (modelo em planilha)
     </button>
     <label class="btn btn-p" style=${{ width: '100%', fontSize: 12.5, cursor: 'pointer', opacity: busy ? .6 : 1 }}>
-      <${IcSubir} size=${14} /> 2. Enviar planilha do novo diretório
-      <input type="file" accept=".xlsx,.xls,.csv" style=${{ display: 'none' }} disabled=${busy}
+      <${IcSubir} size=${14} /> ${busy ? 'Lendo arquivo…' : 'Enviar PDF ou planilha do novo diretório'}
+      <input type="file" accept=".pdf,.xlsx,.xls,.csv" style=${{ display: 'none' }} disabled=${busy}
         onChange=${e => { if (e.target.files[0]) analisar(e.target.files[0]); e.target.value = ''; }} />
     </label>
     ${plano && html`
       <div class="card" style=${{ padding: 14, marginTop: 12, background: 'var(--azul-claro)', border: '1px solid #CFE0EE' }}>
-        <div style=${{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Confira antes de aplicar:</div>
-        <div style=${{ fontSize: 12.5, color: 'var(--tinta2)', lineHeight: 1.8 }}>
-          ${plano.novasFamilias} nova(s) família(s) · ${plano.novosMembros} membro(s) novo(s) ·
-          ${plano.atualizados} atualizado(s)${plano.retornam ? ` · ${plano.retornam} retornam ao diretório` : ''}
-          <div style=${{ color: plano.saem.length ? 'var(--vermelho)' : 'var(--verde)', marginTop: 4 }}>
-            ${plano.saem.length === 0 ? 'Ninguém sai do diretório.' :
-              `${plano.saem.length} membro(s) receberão o selo "Fora do diretório":`}
-          </div>
-          ${plano.saem.slice(0, 12).map(m => html`<div style=${{ fontSize: 12 }}>· ${m.nome}</div>`)}
-          ${plano.saem.length > 12 && html`<div style=${{ fontSize: 11.5 }}>… e mais ${plano.saem.length - 12}.</div>`}
+        <div style=${{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Confira antes de aplicar:</div>
+        <div style=${{ fontSize: 12, color: 'var(--tinta2)', marginBottom: 10 }}>
+          ${plano.novosMembros} membro(s) novo(s) · ${plano.atualizados} atualizado(s)${plano.retornam ? ` · ${plano.retornam} retornam ao diretório` : ''}
         </div>
+
+        <div style=${{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+          <${Chip} bg="var(--verde-claro)" t="var(--verde)">Novas · ${plano.novas.length}<//>
+          <span style=${{ fontSize: 11.5, color: 'var(--tinta3)' }}>famílias incluídas nesta substituição</span>
+        </div>
+        ${plano.novas.length > 0 && html`
+          <div style=${{ background: '#FFF', borderRadius: 8, border: '1px solid var(--linha)', padding: '6px 10px', marginBottom: 10, maxHeight: 160, overflowY: 'auto' }}>
+            ${plano.novas.map((fn, i) => html`<div key=${i} style=${{ fontSize: 12, padding: '4px 0', borderBottom: i < plano.novas.length - 1 ? '1px solid var(--linha2)' : 'none' }}>
+              Família ${fn.sobrenome}${fn.chefe ? ` — ${fn.chefe}` : ''} <span style=${{ color: 'var(--tinta3)' }}>(${fn.membros.length} pessoa${fn.membros.length !== 1 ? 's' : ''})</span>
+            </div>`)}
+          </div>`}
+
+        <div style=${{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+          <${Chip} bg="var(--linha2)" t="var(--tinta2)">Permaneceram · ${plano.mantidas.length}<//>
+          <span style=${{ fontSize: 11.5, color: 'var(--tinta3)' }}>famílias já cadastradas, dados atualizados</span>
+        </div>
+        ${plano.mantidas.length > 0 && html`
+          <div style=${{ background: '#FFF', borderRadius: 8, border: '1px solid var(--linha)', padding: '6px 10px', marginBottom: 10, maxHeight: 160, overflowY: 'auto' }}>
+            ${plano.mantidas.map((fn, i) => html`<div key=${i} style=${{ fontSize: 12, padding: '4px 0', borderBottom: i < plano.mantidas.length - 1 ? '1px solid var(--linha2)' : 'none' }}>
+              Família ${fn.sobrenome}${fn.chefe ? ` — ${fn.chefe}` : ''}
+            </div>`)}
+          </div>`}
+
+        <div style=${{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+          <${Chip} bg=${plano.saem.length ? 'var(--vermelho-claro)' : 'var(--verde-claro)'} t=${plano.saem.length ? 'var(--vermelho)' : 'var(--verde)'}>
+            Saíram · ${plano.saem.length}<//>
+          <span style=${{ fontSize: 11.5, color: 'var(--tinta3)' }}>recebem o selo "Fora do diretório"</span>
+        </div>
+        ${plano.saem.length > 0 && html`
+          <div style=${{ background: '#FFF', borderRadius: 8, border: '1px solid var(--linha)', padding: '6px 10px' }}>
+            ${plano.saem.map((m, i) => html`<div key=${m.id} style=${{ fontSize: 12, padding: '4px 0', borderBottom: i < plano.saem.length - 1 ? '1px solid var(--linha2)' : 'none' }}>
+              ${m.nome}
+            </div>`)}
+          </div>`}
+
         <button class="btn btn-p" style=${{ width: '100%', marginTop: 12, opacity: busy ? .6 : 1 }} disabled=${busy} onClick=${aplicar}>
-          ${busy ? 'Aplicando…' : 'Aplicar substituição'}
+          ${busy ? 'Aplicando…' : 'Concordar com as alterações e aplicar'}
         </button>
       </div>`}
     <button class="btn btn-s" style=${{ width: '100%', marginTop: 10 }} onClick=${onClose}>Fechar</button>

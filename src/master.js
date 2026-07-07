@@ -1,7 +1,7 @@
 import { html, useState, useEffect, sb, fmtBR, Spinner, Modal, Chip } from './core.js';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
-import { IcMais, IcPessoa, IcChave, IcLixeira, IcEscudo } from './icons.js';
+import { IcMais, IcPessoa, IcChave, IcLixeira, IcEscudo, IcOlho, IcEstrela } from './icons.js';
 
 // Cliente auxiliar só para criar contas — não toca na sessão do master.
 const sbAux = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -169,7 +169,7 @@ function PermissoesUsuario({ perfil, onClose, show }) {
   <//>`;
 }
 
-export function Master({ perfil, show }) {
+export function Master({ perfil, show, onEntrar }) {
   const [linhas, setLinhas] = useState(null);
   const [perfis, setPerfis] = useState([]);
   const [nova, setNova] = useState(false);
@@ -183,7 +183,7 @@ export function Master({ perfil, show }) {
       sb.from('membros').select('id, ala_id').eq('ativo', true),
       sb.from('reunioes').select('id, ala_id, data').eq('tipo', 'sacramental').order('data'),
       sb.from('presencas').select('reuniao_id, presente, ala_id').eq('presente', true).limit(50000),
-      sb.from('profiles').select('id, nome, email, papel, ala_id'),
+      sb.from('profiles').select('id, nome, email, papel, ala_id, admin_ala'),
     ]);
     setPerfis(pf || []);
     const presPorReuniao = new Map();
@@ -216,6 +216,13 @@ export function Master({ perfil, show }) {
     show('Acesso revogado.'); carregar();
   };
 
+  const alternarAdmin = async u => {
+    const { error } = await sb.from('profiles').update({ admin_ala: !u.admin_ala }).eq('id', u.id);
+    if (error) return show(error.message, false);
+    show(u.admin_ala ? 'Deixou de ser administrador da ala.' : 'Agora é administrador da ala — pode gerenciar os acessos por conta própria.');
+    carregar();
+  };
+
   if (!linhas) return html`<${Spinner}/>`;
 
   return html`
@@ -233,9 +240,14 @@ export function Master({ perfil, show }) {
             <div class="serif" style=${{ fontWeight: 700, fontSize: 16, color: 'var(--azul)' }}>${a.nome}</div>
             <div style=${{ fontSize: 11, color: 'var(--tinta3)' }}>${a.estaca || '—'} · link público: ?ala=${a.slug}</div>
           </div>
-          <button class="btn btn-s" style=${{ fontSize: 12 }} onClick=${() => setAcessoPara(a)}>
-            <${IcChave} size=${13} /> Criar acesso
-          </button>
+          <div style=${{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <button class="btn btn-p" style=${{ fontSize: 12 }} onClick=${() => onEntrar?.(a)}>
+              <${IcOlho} size=${13} /> Entrar no painel
+            </button>
+            <button class="btn btn-s" style=${{ fontSize: 12 }} onClick=${() => setAcessoPara(a)}>
+              <${IcChave} size=${13} /> Criar acesso
+            </button>
+          </div>
         </div>
         <div style=${{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
           <div class="kpi" style=${{ padding: 10 }}><div class="v" style=${{ fontSize: 19 }}>${a.familias}</div><div class="l">Famílias</div></div>
@@ -250,10 +262,14 @@ export function Master({ perfil, show }) {
           ${usuarios.length === 0 && html`<div style=${{ fontSize: 12, color: 'var(--tinta3)' }}>Nenhum usuário vinculado ainda.</div>`}
           ${usuarios.map(u => html`
             <div key=${u.id} style=${{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontSize: 12.5, color: 'var(--tinta2)', padding: '6px 0', borderBottom: '1px solid var(--linha2)', flexWrap: 'wrap' }}>
-              <span style=${{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+              <span style=${{ display: 'inline-flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
                 <${IcPessoa} size=${13} /> ${u.nome || '(sem nome)'} · ${u.email}
+                ${u.admin_ala && html`<${Chip} bg="var(--dourado-claro)" t="var(--dourado)">Administrador da ala<//>`}
               </span>
-              <div style=${{ display: 'flex', gap: 5 }}>
+              <div style=${{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                <button class="btn btn-s" style=${{ padding: '4px 8px', fontSize: 11 }} title="Torna esta pessoa administradora da ala, podendo gerenciar os acessos por conta própria" onClick=${() => alternarAdmin(u)}>
+                  <${IcEstrela} size=${12} /> ${u.admin_ala ? 'Remover administrador' : 'Tornar administrador'}
+                </button>
                 <button class="btn btn-s" style=${{ padding: '4px 8px', fontSize: 11 }} title="Permissões por módulo" onClick=${() => setPermPara(u)}>
                   <${IcEscudo} size=${12} /> Permissões
                 </button>
@@ -288,5 +304,81 @@ export function Master({ perfil, show }) {
       </div>`}
     ${nova && html`<${NovaAla} onClose=${() => setNova(false)} onSaved=${carregar} show=${show} />`}
     ${acessoPara && html`<${NovoAcesso} ala=${acessoPara} onClose=${() => setAcessoPara(null)} onSaved=${carregar} show=${show} />`}
+    ${permPara && html`<${PermissoesUsuario} perfil=${permPara} onClose=${() => setPermPara(null)} show=${show} />`}`;
+}
+
+// ─── Painel do administrador da ala (gestão de usuários só da própria ala) ──
+// Mesma caixa de ferramentas do master (criar acesso, permissões, redefinir
+// senha, revogar, promover outro administrador), mas restrita à própria ala
+// pela RLS (is_ala_admin() só enxerga/edita perfis com ala_id = my_ala()).
+export function AdminAla({ perfil, show }) {
+  const [usuarios, setUsuarios] = useState(null);
+  const [acesso, setAcesso] = useState(false);
+  const [permPara, setPermPara] = useState(null);
+
+  const carregar = async () => {
+    const { data } = await sb.from('profiles').select('id, nome, email, papel, ala_id, admin_ala')
+      .eq('ala_id', perfil.ala_id).order('nome');
+    setUsuarios(data || []);
+  };
+  useEffect(() => { carregar(); }, [perfil.ala_id]);
+
+  const resetarSenha = async u => {
+    if (!confirm(`Enviar e-mail de redefinição de senha para ${u.email}?`)) return;
+    const { error } = await sbAux.auth.resetPasswordForEmail(u.email);
+    if (error) return show(error.message, false);
+    show('E-mail de redefinição enviado.');
+  };
+
+  const revogarAcesso = async u => {
+    if (u.id === perfil.id) return show('Você não pode revogar o próprio acesso.', false);
+    if (!confirm(`Revogar o acesso de ${u.nome || u.email}? A pessoa deixará de conseguir ver os dados da ala.`)) return;
+    const { error } = await sb.from('profiles').update({ ala_id: null }).eq('id', u.id);
+    if (error) return show(error.message, false);
+    show('Acesso revogado.'); carregar();
+  };
+
+  const alternarAdmin = async u => {
+    if (u.id === perfil.id) return show('Peça a outro administrador ou ao master para alterar seu próprio acesso.', false);
+    const { error } = await sb.from('profiles').update({ admin_ala: !u.admin_ala }).eq('id', u.id);
+    if (error) return show(error.message, false);
+    show(u.admin_ala ? 'Deixou de ser administrador.' : 'Agora também é administrador da ala.');
+    carregar();
+  };
+
+  if (!usuarios) return html`<${Spinner}/>`;
+
+  return html`
+    <div class="hdr">Usuários da ala</div>
+    <div class="sub">Gerencie os acessos de ${perfil.alas?.nome || 'sua ala'}</div>
+    <button class="btn btn-p" style=${{ width: '100%', marginBottom: 12 }} onClick=${() => setAcesso(true)}>
+      <${IcMais} size=${15} /> Criar acesso
+    </button>
+    ${usuarios.length === 0 && html`<div style=${{ fontSize: 12.5, color: 'var(--tinta3)' }}>Nenhum usuário vinculado ainda.</div>`}
+    ${usuarios.map(u => html`
+      <div key=${u.id} class="card" style=${{ padding: '10px 14px' }}>
+        <div style=${{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+          <span style=${{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 13, flexWrap: 'wrap' }}>
+            <${IcPessoa} size=${14} /> ${u.nome || '(sem nome)'} · ${u.email}
+            ${u.admin_ala && html`<${Chip} bg="var(--dourado-claro)" t="var(--dourado)">Administrador<//>`}
+            ${u.id === perfil.id && html`<${Chip} bg="var(--azul-claro)" t="var(--azul)">Você<//>`}
+          </span>
+        </div>
+        <div style=${{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 8 }}>
+          <button class="btn btn-s" style=${{ padding: '4px 8px', fontSize: 11 }} title="Torna esta pessoa administradora da ala" onClick=${() => alternarAdmin(u)}>
+            <${IcEstrela} size=${12} /> ${u.admin_ala ? 'Remover administrador' : 'Tornar administrador'}
+          </button>
+          <button class="btn btn-s" style=${{ padding: '4px 8px', fontSize: 11 }} title="Permissões por módulo" onClick=${() => setPermPara(u)}>
+            <${IcEscudo} size=${12} /> Permissões
+          </button>
+          <button class="btn btn-s" style=${{ padding: '4px 8px', fontSize: 11 }} title="Enviar redefinição de senha" onClick=${() => resetarSenha(u)}>
+            <${IcChave} size=${12} /> Redefinir senha
+          </button>
+          <button class="btn btn-d" style=${{ padding: '4px 8px', fontSize: 11 }} title="Revogar acesso" onClick=${() => revogarAcesso(u)}>
+            <${IcLixeira} size=${12} /> Revogar
+          </button>
+        </div>
+      </div>`)}
+    ${acesso && html`<${NovoAcesso} ala=${{ id: perfil.ala_id, nome: perfil.alas?.nome || 'sua ala' }} onClose=${() => setAcesso(false)} onSaved=${carregar} show=${show} />`}
     ${permPara && html`<${PermissoesUsuario} perfil=${permPara} onClose=${() => setPermPara(null)} show=${show} />`}`;
 }

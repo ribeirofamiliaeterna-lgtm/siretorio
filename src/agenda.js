@@ -1,4 +1,4 @@
-import { html, useState, useEffect, useMemo, sb, norm, toISO, fmtBR, nextSunday, Spinner, Empty, Modal } from './core.js';
+import { html, useState, useEffect, useMemo, useRef, sb, norm, toISO, fmtBR, nextSunday, lastSunday, Spinner, Empty, Modal, exportarPDF } from './core.js';
 import { Relatorios, Planilha } from './agenda-relatorios.js';
 import { IcLivro, IcImprimir, IcVoltar, IcMais, IcFechar, IcOlho } from './icons.js';
 import { HINOS } from './hinos.js';
@@ -13,6 +13,7 @@ export const SECOES = {
 
 // Modelo padrão de agenda (baseado nas atas da ala)
 const MODELO = [
+  ['abertura', 'Recepcionista', 'funcao'],
   ['abertura', 'Presidindo', 'funcao'],
   ['abertura', 'Dirigindo', 'funcao'],
   ['abertura', 'Regente', 'funcao'],
@@ -31,6 +32,11 @@ const MODELO = [
   ['encerramento', 'Oração de encerramento', 'oracao'],
 ];
 
+// Funções que costumam mudar toda semana — ao criar uma nova agenda, o sistema
+// já sugere quem serviu no domingo anterior, mas como sugestão pendente
+// (a ala precisa aceitar, deixar em branco ou substituir antes de valer).
+const ROTULOS_ROTATIVOS = ['Recepcionista', 'Regente', 'Organista'];
+
 const TIPOS_NOVOS = [
   ['discurso', 'Discursante'],
   ['participacao', 'Participação especial'],
@@ -41,8 +47,9 @@ const TIPOS_NOVOS = [
 const ehPessoa = t => ['funcao', 'oracao', 'discurso', 'participacao'].includes(t);
 
 // ─── Seletor de pessoa com autocompletar do diretório ───────────────────
-export function PersonPicker({ membros, membroId, nomeLivre, onPick }) {
+export function PersonPicker({ membros, membroId, nomeLivre, onPick, autoFocus }) {
   const [q, setQ] = useState(null);          // null = não está editando
+  const inputRef = useRef(null);
   const escolhido = membroId ? membros.find(m => m.id === membroId) : null;
   const display = escolhido ? escolhido.nome : (nomeLivre || '');
   const editando = q !== null;
@@ -51,6 +58,8 @@ export function PersonPicker({ membros, membroId, nomeLivre, onPick }) {
     const n = norm(q);
     return membros.filter(m => norm(m.nome).includes(n)).slice(0, 8);
   }, [q, editando, membros]);
+
+  useEffect(() => { if (autoFocus) inputRef.current?.focus(); }, [autoFocus]);
 
   const confirmarTexto = () => {
     if (q === null) return;   // não estava editando (ex.: blur logo após escolher no autocompletar)
@@ -62,7 +71,7 @@ export function PersonPicker({ membros, membroId, nomeLivre, onPick }) {
   return html`
   <div style=${{ position: 'relative', flex: 1 }}>
     <div style=${{ display: 'flex', alignItems: 'center', gap: 6 }}>
-      <input class="inp" style=${{ fontSize: 13 }} placeholder="Digite o nome…"
+      <input ref=${inputRef} class="inp" style=${{ fontSize: 13 }} placeholder="Digite o nome…"
         value=${editando ? q : display}
         onFocus=${() => setQ(display)}
         onInput=${e => setQ(e.target.value)}
@@ -126,6 +135,7 @@ function Editor({ perfil, show, agenda, membros, onVoltar, onLeitura }) {
   const [freq, setFreq] = useState(agenda.frequencia ?? '');
   const [presRodizio, setPresRodizio] = useState(null);
   const [novo, setNovo] = useState(null); // secao em que está adicionando
+  const [focoSubstituir, setFocoSubstituir] = useState(null); // item cujo campo deve abrir pronto p/ digitar
 
   const carregar = async () => {
     const { data } = await sb.from('agenda_itens').select('*').eq('agenda_id', agenda.id).order('ordem');
@@ -222,9 +232,22 @@ function Editor({ perfil, show, agenda, membros, onVoltar, onLeitura }) {
                 <button style=${{ color: 'var(--vermelho)', fontSize: 13, padding: '0 4px' }} onClick=${() => excluirItem(item)}>✕</button>
               </div>
             </div>
-            ${ehPessoa(item.tipo)
+            ${ehPessoa(item.tipo) && item.sugerido
+              ? html`<div class="card" style=${{ padding: 10, background: 'var(--dourado-claro)', border: '1px solid #E9DDBE' }}>
+                  <div style=${{ fontSize: 12.5, color: 'var(--tinta)' }}>
+                    Sugestão (quem serviu no domingo passado): <strong>${item.membro_id ? membros.find(m => m.id === item.membro_id)?.nome || item.nome_livre : item.nome_livre}</strong>
+                  </div>
+                  <div style=${{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+                    <button class="btn btn-p" style=${{ fontSize: 11.5, padding: '6px 10px' }} onClick=${() => salvarItem(item.id, { sugerido: false })}>Aceitar</button>
+                    <button class="btn btn-s" style=${{ fontSize: 11.5, padding: '6px 10px' }} onClick=${() => salvarItem(item.id, { sugerido: false, membro_id: null, nome_livre: '' })}>Deixar em branco</button>
+                    <button class="btn btn-s" style=${{ fontSize: 11.5, padding: '6px 10px' }}
+                      onClick=${() => { salvarItem(item.id, { sugerido: false, membro_id: null, nome_livre: '' }); setFocoSubstituir(item.id); }}>Substituir</button>
+                  </div>
+                </div>`
+              : ehPessoa(item.tipo)
               ? html`<${PersonPicker} membros=${membros} membroId=${item.membro_id} nomeLivre=${item.nome_livre}
-                  onPick=${p => salvarItem(item.id, p)} />`
+                  autoFocus=${focoSubstituir === item.id}
+                  onPick=${p => { salvarItem(item.id, p); setFocoSubstituir(null); }} />`
               : item.tipo === 'hino'
                 ? html`<${HinoPicker} valor=${item.conteudo}
                     onChange=${v => { setItens(a => a.map(i => i.id === item.id ? { ...i, conteudo: v } : i)); salvarItem(item.id, { conteudo: v }); }} />`
@@ -300,6 +323,66 @@ function Leitura({ perfil, agenda, membros, onVoltar }) {
   </div>`;
 }
 
+// ─── Exportação em PDF de várias agendas por período (1 domingo por página) ─
+function ExportarPeriodo({ perfil, membros, onClose, show }) {
+  const [de, setDe] = useState(toISO(new Date(lastSunday().getTime() - 84 * 864e5)));
+  const [ate, setAte] = useState(toISO(nextSunday()));
+  const [busy, setBusy] = useState(false);
+
+  const gerar = async () => {
+    if (de > ate) return show('A data inicial precisa ser antes da final.', false);
+    setBusy(true);
+    try {
+      const { data: ags } = await sb.from('agendas').select('*').eq('ala_id', perfil.ala_id)
+        .gte('data', de).lte('data', ate).order('data');
+      if (!ags || ags.length === 0) { show('Nenhuma agenda encontrada no período.', false); setBusy(false); return; }
+      const nomeDe = new Map(membros.map(m => [m.id, m.nome]));
+      const paginas = await Promise.all(ags.map(async (ag, idx) => {
+        const { data: itens } = await sb.from('agenda_itens').select('*').eq('agenda_id', ag.id).order('ordem');
+        const secoesHtml = Object.entries(SECOES).map(([sec, nomeSec]) => {
+          const daSecao = (itens || []).filter(i => i.secao === sec)
+            .filter(i => ehPessoa(i.tipo) ? (i.membro_id ? nomeDe.get(i.membro_id) : i.nome_livre) : i.conteudo.trim());
+          if (daSecao.length === 0) return '';
+          return `<div style="margin-bottom:16px">
+            <div style="font-family:'Palatino Linotype',serif;font-size:11.5px;font-weight:700;color:#16436B;text-transform:uppercase;letter-spacing:1.6px;text-align:center;margin-bottom:6px">${nomeSec}</div>
+            ${daSecao.map(i => `
+              <div style="text-align:center;padding:8px 6px;border-bottom:1px solid #E5E2DB">
+                <div style="font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#8A9099;margin-bottom:3px">${i.rotulo}</div>
+                <div style="font-family:'Palatino Linotype',serif;font-size:15px;color:#23282E">${(ehPessoa(i.tipo) ? (i.membro_id ? nomeDe.get(i.membro_id) : i.nome_livre) : i.conteudo) || ''}</div>
+              </div>`).join('')}
+          </div>`;
+        }).join('');
+        return `<div style="${idx < ags.length - 1 ? 'page-break-after:always;' : ''}max-width:560px;margin:0 auto 30px">
+          <div style="text-align:center;margin-bottom:18px">
+            <div style="font-size:11px;font-weight:700;color:#9A7B3F;text-transform:uppercase;letter-spacing:2px">Reunião Sacramental</div>
+            <div style="font-family:'Palatino Linotype',serif;font-size:20px;font-weight:700;color:#16436B;margin-top:3px">${perfil.alas?.nome || ''}</div>
+            <div style="font-size:12.5px;color:#5A6068;margin-top:3px">${fmtBR(ag.data)}</div>
+          </div>
+          ${secoesHtml}
+        </div>`;
+      }));
+      exportarPDF('Agendas Sacramentais', `${fmtBR(de)} a ${fmtBR(ate)} — ${perfil.alas?.nome || ''}`, paginas.join(''));
+      onClose();
+    } catch (e) { show(`Erro ao gerar PDF: ${e.message}`, false); }
+    setBusy(false);
+  };
+
+  return html`<${Modal} onClose=${onClose}>
+    <div class="titulo-secao">Exportar agendas em PDF</div>
+    <div style=${{ fontSize: 12.5, color: 'var(--tinta2)', margin: '6px 0 14px' }}>
+      Gera um PDF com uma página para cada domingo do período escolhido, pronto para impressão ou arquivo.
+    </div>
+    <label class="lbl" style=${{ marginTop: 0 }}>De</label>
+    <input class="inp" type="date" value=${de} onInput=${e => setDe(e.target.value)} />
+    <label class="lbl">Até</label>
+    <input class="inp" type="date" value=${ate} onInput=${e => setAte(e.target.value)} />
+    <div style=${{ display: 'flex', gap: 8, marginTop: 16 }}>
+      <button class="btn btn-s" style=${{ flex: 1 }} onClick=${onClose}>Cancelar</button>
+      <button class="btn btn-p" style=${{ flex: 1, opacity: busy ? .6 : 1 }} disabled=${busy} onClick=${gerar}>${busy ? 'Gerando…' : 'Gerar PDF'}</button>
+    </div>
+  <//>`;
+}
+
 // ─── Módulo principal ────────────────────────────────────────────────────
 export function Agenda({ perfil, show, readOnly }) {
   const [aba, setAba] = useState('agendas');
@@ -309,6 +392,7 @@ export function Agenda({ perfil, show, readOnly }) {
   const [modo, setModo] = useState('editor');   // editor | leitura
   const [criando, setCriando] = useState(false);
   const [novaData, setNovaData] = useState(toISO(nextSunday()));
+  const [exportando, setExportando] = useState(false);
 
   const carregar = async () => {
     const [{ data: a }, { data: m }] = await Promise.all([
@@ -323,9 +407,26 @@ export function Agenda({ perfil, show, readOnly }) {
     const { data: ag, error } = await sb.from('agendas')
       .insert({ ala_id: perfil.ala_id, data: novaData }).select().single();
     if (error) return show(error.code === '23505' ? 'Já existe agenda para essa data.' : error.message, false);
-    const { error: e2 } = await sb.from('agenda_itens').insert(MODELO.map(([secao, rotulo, tipo], i) => ({
-      agenda_id: ag.id, ala_id: perfil.ala_id, secao, rotulo, tipo, ordem: (i + 1) * 10, padrao: true,
-    })));
+
+    // Recepcionista, Regente e Organista costumam ser os mesmos da semana
+    // anterior — busca a última agenda antes desta data e traz os nomes como
+    // sugestão (a ala confirma, deixa em branco ou substitui na hora de editar).
+    const anteriores = new Map();
+    const { data: anteriorAg } = await sb.from('agendas').select('id').eq('ala_id', perfil.ala_id)
+      .lt('data', novaData).order('data', { ascending: false }).limit(1).maybeSingle();
+    if (anteriorAg) {
+      const { data: itensAnteriores } = await sb.from('agenda_itens').select('rotulo, membro_id, nome_livre')
+        .eq('agenda_id', anteriorAg.id).in('rotulo', ROTULOS_ROTATIVOS);
+      (itensAnteriores || []).forEach(i => { if (i.membro_id || i.nome_livre) anteriores.set(i.rotulo, i); });
+    }
+
+    const { error: e2 } = await sb.from('agenda_itens').insert(MODELO.map(([secao, rotulo, tipo], i) => {
+      const sugestao = ROTULOS_ROTATIVOS.includes(rotulo) ? anteriores.get(rotulo) : null;
+      return {
+        agenda_id: ag.id, ala_id: perfil.ala_id, secao, rotulo, tipo, ordem: (i + 1) * 10, padrao: true,
+        membro_id: sugestao?.membro_id || null, nome_livre: sugestao?.nome_livre || '', sugerido: !!sugestao,
+      };
+    }));
     if (e2) return show(e2.message, false);
     show('Agenda criada com o modelo padrão.');
     setCriando(false); await carregar(); setAtual(ag); setModo('editor');
@@ -357,7 +458,7 @@ export function Agenda({ perfil, show, readOnly }) {
     </div>
 
     ${aba === 'agendas' && html`
-      ${!readOnly && (criando ? html`
+      ${!readOnly && criando && html`
         <div class="card" style=${{ padding: 14 }}>
           <label class="lbl" style=${{ marginTop: 0 }}>Data da reunião</label>
           <input class="inp" type="date" value=${novaData} onInput=${e => setNovaData(e.target.value)} />
@@ -365,8 +466,12 @@ export function Agenda({ perfil, show, readOnly }) {
             <button class="btn btn-s" style=${{ flex: 1 }} onClick=${() => setCriando(false)}>Cancelar</button>
             <button class="btn btn-p" style=${{ flex: 1 }} onClick=${criarAgenda}>Criar com modelo padrão</button>
           </div>
-        </div>` : html`
-        <button class="btn btn-p" style=${{ width: '100%', marginBottom: 12 }} onClick=${() => setCriando(true)}><${IcMais} size=${14} /> Nova agenda</button>`)}
+        </div>`}
+      ${!criando && html`
+        <div style=${{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          ${!readOnly && html`<button class="btn btn-p" style=${{ flex: 1 }} onClick=${() => setCriando(true)}><${IcMais} size=${14} /> Nova agenda</button>`}
+          <button class="btn btn-s" style=${{ flex: 1 }} onClick=${() => setExportando(true)}><${IcImprimir} size=${14} /> Exportar período (PDF)</button>
+        </div>`}
       ${agendas.length === 0 && html`<${Empty} msg="Nenhuma agenda ainda. Crie a primeira — ela já vem com o modelo da ala." />`}
       ${agendas.map(ag => html`
         <div key=${ag.id} class="card" style=${{ padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
@@ -379,5 +484,6 @@ export function Agenda({ perfil, show, readOnly }) {
         </div>`)}`}
 
     ${aba === 'relatorios' && html`<${Relatorios} perfil=${perfil} membros=${membros} />`}
-    ${aba === 'planilha' && html`<${Planilha} perfil=${perfil} show=${show} membros=${membros} onImport=${carregar} readOnly=${readOnly} />`}`;
+    ${aba === 'planilha' && html`<${Planilha} perfil=${perfil} show=${show} membros=${membros} onImport=${carregar} readOnly=${readOnly} />`}
+    ${exportando && html`<${ExportarPeriodo} perfil=${perfil} membros=${membros} onClose=${() => setExportando(false)} show=${show} />`}`;
 }
