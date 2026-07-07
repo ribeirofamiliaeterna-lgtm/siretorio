@@ -73,11 +73,14 @@ function Visitantes({ perfil, data, show, garantirReuniao, reuniao, aoMudar }) {
   const [busy, setBusy] = useState(false);
   const [aberto, setAberto] = useState(false);
 
+  const carregarNomeados = rid => {
+    if (!rid) { setNomeados([]); return; }
+    sb.from('reuniao_visitantes').select('*').eq('reuniao_id', rid).order('criado_em')
+      .then(({ data: v }) => setNomeados(v || []));
+  };
   useEffect(() => {
     setQtd(reuniao?.visitantes ?? '');
-    if (!reuniao) { setNomeados([]); return; }
-    sb.from('reuniao_visitantes').select('*').eq('reuniao_id', reuniao.id).order('criado_em')
-      .then(({ data: v }) => setNomeados(v || []));
+    carregarNomeados(reuniao?.id);
   }, [reuniao?.id, data]);
 
   const salvarQtd = async () => {
@@ -120,6 +123,7 @@ function Visitantes({ perfil, data, show, garantirReuniao, reuniao, aoMudar }) {
           .insert({ reuniao_id: rid, ala_id: perfil.ala_id, nome });
         if (error) throw new Error(error.message);
         show('Visitante registrado.');
+        carregarNomeados(rid);
       }
       setNovoNome(''); setAcompanhar(false); aoMudar();
     } catch (e) { show(e.message, false); }
