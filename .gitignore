@@ -10,3 +10,7 @@ ala-qualificacao.html
 node_modules/
 .DS_Store
 .gstack/
+
+# Senhas provisórias locais
+*.senha.txt
+.master-temp-senha.txt
