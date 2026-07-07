@@ -1,5 +1,6 @@
 import { html, useState, useEffect, useMemo, sb, norm, toISO, fmtBR, nextSunday, Spinner, Empty, Modal } from './core.js';
 import { Relatorios, Planilha } from './agenda-relatorios.js';
+import { IcLivro, IcImprimir, IcVoltar, IcMais, IcFechar, IcOlho } from './icons.js';
 
 export const SECOES = {
   abertura:     'Abertura',
@@ -30,11 +31,11 @@ const MODELO = [
 ];
 
 const TIPOS_NOVOS = [
-  ['discurso', '🎤 Discursante'],
-  ['participacao', '🎵 Participação especial'],
-  ['oracao', '🙏 Oração'],
-  ['hino', '🎼 Hino'],
-  ['texto', '📝 Texto livre'],
+  ['discurso', 'Discursante'],
+  ['participacao', 'Participação especial'],
+  ['oracao', 'Oração'],
+  ['hino', 'Hino'],
+  ['texto', 'Texto livre'],
 ];
 const ehPessoa = t => ['funcao', 'oracao', 'discurso', 'participacao'].includes(t);
 
@@ -66,15 +67,15 @@ export function PersonPicker({ membros, membroId, nomeLivre, onPick }) {
         onInput=${e => setQ(e.target.value)}
         onBlur=${confirmarTexto}
         onKeyDown=${e => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }} />
-      ${escolhido && !editando && html`<span class="chip" style=${{ background: '#D1FAE5', color: '#065F46', flexShrink: 0 }} title="Encontrado no diretório">✓</span>`}
-      ${!escolhido && display && !editando && html`<span class="chip" style=${{ background: '#FEF3C7', color: '#92400E', flexShrink: 0 }} title="Fora do diretório">?</span>`}
+      ${escolhido && !editando && html`<span class="chip" style=${{ background: 'var(--verde-claro)', color: 'var(--verde)', flexShrink: 0 }} title="Encontrado no diretório">✓</span>`}
+      ${!escolhido && display && !editando && html`<span class="chip" style=${{ background: 'var(--ambar-claro)', color: 'var(--ambar)', flexShrink: 0 }} title="Fora do diretório">?</span>`}
     </div>
     ${sugestoes.length > 0 && html`
       <div style=${{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 30, background: '#FFF',
-        border: '1px solid #CBD5E1', borderRadius: 10, boxShadow: '0 6px 18px rgba(0,0,0,.14)', overflow: 'hidden', maxHeight: 240, overflowY: 'auto' }}>
+        border: '1px solid var(--linha)', borderRadius: 10, boxShadow: '0 6px 18px rgba(35,40,46,.14)', overflow: 'hidden', maxHeight: 240, overflowY: 'auto' }}>
         ${sugestoes.map(m => html`
           <div key=${m.id} onMouseDown=${e => { e.preventDefault(); onPick({ membro_id: m.id, nome_livre: '' }); setQ(null); }}
-            style=${{ padding: '9px 12px', fontSize: 13, color: '#334155', cursor: 'pointer', borderBottom: '1px solid #F1F5F9' }}>
+            style=${{ padding: '9px 12px', fontSize: 13, color: 'var(--tinta)', cursor: 'pointer', borderBottom: '1px solid var(--linha2)' }}>
             ${m.nome}
           </div>`)}
       </div>`}
@@ -145,7 +146,7 @@ function Editor({ perfil, show, agenda, membros, onVoltar, onLeitura }) {
   const salvarFreq = async () => {
     const v = freq === '' ? null : Number(freq);
     const { error } = await sb.from('agendas').update({ frequencia: v }).eq('id', agenda.id);
-    if (error) show(error.message, false); else show('Frequência salva ✅');
+    if (error) show(error.message, false); else show('Frequência salva.');
   };
 
   if (!itens) return html`<${Spinner}/>`;
@@ -153,34 +154,34 @@ function Editor({ perfil, show, agenda, membros, onVoltar, onLeitura }) {
   return html`
   <div class="no-print">
     <div style=${{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, gap: 8, flexWrap: 'wrap' }}>
-      <button class="btn btn-s" style=${{ fontSize: 12 }} onClick=${onVoltar}>← Agendas</button>
-      <button class="btn btn-p" style=${{ fontSize: 12 }} onClick=${onLeitura}>📖 Modo condução</button>
+      <button class="btn btn-s" style=${{ fontSize: 12 }} onClick=${onVoltar}><${IcVoltar} size=${14} /> Agendas</button>
+      <button class="btn btn-p" style=${{ fontSize: 12 }} onClick=${onLeitura}><${IcLivro} size=${14} /> Modo condução</button>
     </div>
     <div class="hdr" style=${{ fontSize: 17 }}>Agenda de ${fmtBR(agenda.data)}</div>
     <div style=${{ display: 'flex', gap: 8, alignItems: 'center', margin: '8px 0 14px', flexWrap: 'wrap' }}>
-      <label style=${{ fontSize: 12, fontWeight: 700, color: '#475569' }}>Frequência:</label>
+      <label style=${{ fontSize: 12, fontWeight: 700, color: 'var(--tinta2)' }}>Frequência:</label>
       <input class="inp" type="number" style=${{ width: 90 }} value=${freq}
         onInput=${e => setFreq(e.target.value)} onBlur=${salvarFreq} />
       ${presRodizio != null && html`
-        <span class="chip" style=${{ background: '#EFF6FF', color: '#1D4ED8' }}>Rodízio registrou ${presRodizio} presentes</span>`}
+        <span class="chip" style=${{ background: 'var(--azul-claro)', color: 'var(--azul)' }}>A Frequência da Ala registrou ${presRodizio} presentes</span>`}
     </div>
 
     ${Object.entries(SECOES).map(([sec, nomeSec]) => {
       const daSecao = itens.filter(i => i.secao === sec);
       return html`
       <div key=${sec} class="card" style=${{ padding: 14 }}>
-        <div style=${{ fontWeight: 800, fontSize: 13, color: '#1D4ED8', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 8 }}>${nomeSec}</div>
+        <div style=${{ fontWeight: 700, fontSize: 12.5, color: 'var(--azul)', textTransform: 'uppercase', letterSpacing: .8, marginBottom: 8, fontFamily: 'var(--serif)' }}>${nomeSec}</div>
         ${daSecao.map((item, idx) => html`
           <div key=${item.id} style=${{ marginBottom: 10 }}>
             <div style=${{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
               ${item.padrao
-                ? html`<span style=${{ fontSize: 12, fontWeight: 700, color: '#475569' }}>${item.rotulo}</span>`
-                : html`<input value=${item.rotulo} style=${{ fontSize: 12, fontWeight: 700, color: '#475569', border: 'none', background: 'transparent', borderBottom: '1px dashed #CBD5E1', outline: 'none', flex: 1 }}
+                ? html`<span style=${{ fontSize: 12, fontWeight: 700, color: 'var(--tinta2)' }}>${item.rotulo}</span>`
+                : html`<input value=${item.rotulo} style=${{ fontSize: 12, fontWeight: 700, color: 'var(--tinta2)', border: 'none', background: 'transparent', borderBottom: '1px dashed var(--linha)', outline: 'none', flex: 1 }}
                     onBlur=${e => e.target.value.trim() && e.target.value !== item.rotulo && salvarItem(item.id, { rotulo: e.target.value.trim() })} />`}
               <div style=${{ display: 'flex', gap: 2, flexShrink: 0 }}>
-                <button style=${{ color: '#94A3B8', fontSize: 13, padding: '0 4px' }} disabled=${idx === 0} onClick=${() => mover(item, -1)}>↑</button>
-                <button style=${{ color: '#94A3B8', fontSize: 13, padding: '0 4px' }} disabled=${idx === daSecao.length - 1} onClick=${() => mover(item, 1)}>↓</button>
-                <button style=${{ color: '#DC2626', fontSize: 13, padding: '0 4px' }} onClick=${() => excluirItem(item)}>✕</button>
+                <button style=${{ color: 'var(--tinta3)', fontSize: 13, padding: '0 4px' }} disabled=${idx === 0} onClick=${() => mover(item, -1)}>↑</button>
+                <button style=${{ color: 'var(--tinta3)', fontSize: 13, padding: '0 4px' }} disabled=${idx === daSecao.length - 1} onClick=${() => mover(item, 1)}>↓</button>
+                <button style=${{ color: 'var(--vermelho)', fontSize: 13, padding: '0 4px' }} onClick=${() => excluirItem(item)}>✕</button>
               </div>
             </div>
             ${ehPessoa(item.tipo)
@@ -196,7 +197,7 @@ function Editor({ perfil, show, agenda, membros, onVoltar, onLeitura }) {
           </div>`)}
         ${novo === sec
           ? html`<${NovoItem} onAdd=${(tipo, rotulo) => addItem(sec, tipo, rotulo)} onCancel=${() => setNovo(null)} />`
-          : html`<button class="btn btn-s" style=${{ fontSize: 12, width: '100%' }} onClick=${() => setNovo(sec)}>+ Adicionar item</button>`}
+          : html`<button class="btn btn-s" style=${{ fontSize: 12, width: '100%' }} onClick=${() => setNovo(sec)}><${IcMais} size=${13} /> Adicionar item</button>`}
       </div>`;
     })}
   </div>`;
@@ -207,10 +208,10 @@ function NovoItem({ onAdd, onCancel }) {
   const [rotulo, setRotulo] = useState('');
   const sugestao = { discurso: '3º Discursante', participacao: 'Apresentação musical', oracao: 'Oração', hino: 'Hino', texto: 'Observações' };
   return html`
-  <div style=${{ background: '#FAFBFF', border: '1px dashed #CBD5E1', borderRadius: 10, padding: 10 }}>
+  <div style=${{ background: 'var(--papel)', border: '1px dashed var(--linha)', borderRadius: 10, padding: 10 }}>
     <div style=${{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
       ${TIPOS_NOVOS.map(([t, l]) => html`
-        <button key=${t} class="chip" style=${{ background: tipo === t ? '#2563EB' : '#F1F5F9', color: tipo === t ? '#FFF' : '#64748B', padding: '6px 10px', fontSize: 12 }}
+        <button key=${t} class="chip" style=${{ background: tipo === t ? 'var(--azul)' : 'var(--linha2)', color: tipo === t ? '#FFF' : 'var(--tinta2)', padding: '6px 10px', fontSize: 12 }}
           onClick=${() => setTipo(t)}>${l}</button>`)}
     </div>
     <input class="inp" style=${{ fontSize: 13, marginTop: 8 }} placeholder=${`Nome do item — ex: ${sugestao[tipo]}`}
@@ -235,13 +236,13 @@ function Leitura({ perfil, agenda, membros, onVoltar }) {
   return html`
   <div>
     <div class="no-print" style=${{ display: 'flex', justifyContent: 'space-between', marginBottom: 14 }}>
-      <button class="btn btn-s" style=${{ fontSize: 12 }} onClick=${onVoltar}>← Editar</button>
-      <button class="btn btn-p" style=${{ fontSize: 12 }} onClick=${() => window.print()}>🖨️ Imprimir</button>
+      <button class="btn btn-s" style=${{ fontSize: 12 }} onClick=${onVoltar}><${IcVoltar} size=${14} /> Editar</button>
+      <button class="btn btn-p" style=${{ fontSize: 12 }} onClick=${() => window.print()}><${IcImprimir} size=${14} /> Imprimir</button>
     </div>
     <div style=${{ textAlign: 'center', marginBottom: 18 }}>
-      <div style=${{ fontSize: 13, fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: 1 }}>Reunião Sacramental</div>
-      <div style=${{ fontSize: 22, fontWeight: 800, marginTop: 2 }}>${perfil.alas?.nome || ''}</div>
-      <div style=${{ fontSize: 15, color: '#475569', marginTop: 2 }}>${fmtBR(agenda.data)}</div>
+      <div class="serif" style=${{ fontSize: 13, fontWeight: 700, color: 'var(--dourado)', textTransform: 'uppercase', letterSpacing: 2 }}>Reunião Sacramental</div>
+      <div class="serif" style=${{ fontSize: 24, fontWeight: 700, marginTop: 2, color: 'var(--azul)' }}>${perfil.alas?.nome || ''}</div>
+      <div style=${{ fontSize: 14, color: 'var(--tinta2)', marginTop: 3 }}>${fmtBR(agenda.data)}</div>
     </div>
     ${Object.entries(SECOES).map(([sec, nomeSec]) => {
       const daSecao = itens.filter(i => i.secao === sec)
@@ -249,11 +250,11 @@ function Leitura({ perfil, agenda, membros, onVoltar }) {
       if (daSecao.length === 0) return null;
       return html`
       <div key=${sec} style=${{ marginBottom: 20 }}>
-        <div style=${{ fontSize: 12, fontWeight: 800, color: '#1D4ED8', textTransform: 'uppercase', letterSpacing: 1, borderBottom: '2px solid #DBEAFE', paddingBottom: 4, marginBottom: 8 }}>${nomeSec}</div>
+        <div class="serif" style=${{ fontSize: 12, fontWeight: 700, color: 'var(--azul)', textTransform: 'uppercase', letterSpacing: 1.5, borderBottom: '1px solid var(--linha)', paddingBottom: 4, marginBottom: 8 }}>${nomeSec}</div>
         ${daSecao.map(i => html`
-          <div key=${i.id} style=${{ display: 'flex', gap: 10, padding: '7px 0', borderBottom: '1px solid #F1F5F9', alignItems: 'baseline' }}>
-            <span style=${{ fontSize: 13, fontWeight: 700, color: '#64748B', minWidth: 150, flexShrink: 0 }}>${i.rotulo}</span>
-            <span style=${{ fontSize: 16, color: '#1E293B', whiteSpace: 'pre-wrap' }}>${ehPessoa(i.tipo) ? nomeDe(i) : i.conteudo}</span>
+          <div key=${i.id} style=${{ display: 'flex', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--linha2)', alignItems: 'baseline' }}>
+            <span style=${{ fontSize: 13, fontWeight: 600, color: 'var(--tinta3)', minWidth: 150, flexShrink: 0 }}>${i.rotulo}</span>
+            <span class="serif" style=${{ fontSize: 16, color: 'var(--tinta)', whiteSpace: 'pre-wrap' }}>${ehPessoa(i.tipo) ? nomeDe(i) : i.conteudo}</span>
           </div>`)}
       </div>`;
     })}
@@ -273,7 +274,7 @@ export function Agenda({ perfil, show }) {
   const carregar = async () => {
     const [{ data: a }, { data: m }] = await Promise.all([
       sb.from('agendas').select('*').eq('ala_id', perfil.ala_id).order('data', { ascending: false }),
-      sb.from('membros').select('id, nome, is_membro, ativo').eq('ala_id', perfil.ala_id).eq('ativo', true).order('nome'),
+      sb.from('membros').select('id, nome, sexo, is_membro, ativo').eq('ala_id', perfil.ala_id).eq('ativo', true).order('nome'),
     ]);
     setAgendas(a || []); setMembros(m || []);
   };
@@ -287,7 +288,7 @@ export function Agenda({ perfil, show }) {
       agenda_id: ag.id, ala_id: perfil.ala_id, secao, rotulo, tipo, ordem: (i + 1) * 10, padrao: true,
     })));
     if (e2) return show(e2.message, false);
-    show('Agenda criada com o modelo padrão ✅');
+    show('Agenda criada com o modelo padrão.');
     setCriando(false); await carregar(); setAtual(ag); setModo('editor');
   };
 
@@ -307,7 +308,7 @@ export function Agenda({ perfil, show }) {
   }
 
   return html`
-    <div class="hdr">📋 Agenda Sacramental</div>
+    <div class="hdr">Agenda Sacramental</div>
     <div class="sub">Programa da reunião, discursantes e relatórios</div>
     <div class="seg" style=${{ marginBottom: 12 }}>
       <button class=${aba === 'agendas' ? 'on' : ''} onClick=${() => setAba('agendas')}>Agendas</button>
@@ -325,16 +326,16 @@ export function Agenda({ perfil, show }) {
             <button class="btn btn-p" style=${{ flex: 1 }} onClick=${criarAgenda}>Criar com modelo padrão</button>
           </div>
         </div>` : html`
-        <button class="btn btn-p" style=${{ width: '100%', marginBottom: 12 }} onClick=${() => setCriando(true)}>+ Nova agenda</button>`}
+        <button class="btn btn-p" style=${{ width: '100%', marginBottom: 12 }} onClick=${() => setCriando(true)}><${IcMais} size=${14} /> Nova agenda</button>`}
       ${agendas.length === 0 && html`<${Empty} msg="Nenhuma agenda ainda. Crie a primeira — ela já vem com o modelo da ala." />`}
       ${agendas.map(ag => html`
         <div key=${ag.id} class="card" style=${{ padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
           <div style=${{ cursor: 'pointer', flex: 1 }} onClick=${() => { setAtual(ag); setModo('editor'); }}>
             <div style=${{ fontWeight: 700, fontSize: 14 }}>Domingo ${fmtBR(ag.data)}</div>
-            <div style=${{ fontSize: 11, color: '#94A3B8' }}>${ag.frequencia ? `Frequência: ${ag.frequencia}` : 'Frequência não informada'}</div>
+            <div style=${{ fontSize: 11, color: 'var(--tinta3)' }}>${ag.frequencia ? `Frequência: ${ag.frequencia}` : 'Frequência não informada'}</div>
           </div>
-          <button class="btn btn-s" style=${{ fontSize: 12 }} onClick=${() => { setAtual(ag); setModo('leitura'); }}>📖 Ver</button>
-          <button style=${{ color: '#DC2626', fontSize: 15, padding: 4 }} onClick=${() => excluirAgenda(ag)}>✕</button>
+          <button class="btn btn-s" style=${{ fontSize: 12 }} onClick=${() => { setAtual(ag); setModo('leitura'); }}><${IcOlho} size=${14} /> Ver</button>
+          <button style=${{ color: 'var(--vermelho)', fontSize: 15, padding: 4 }} onClick=${() => excluirAgenda(ag)}><${IcFechar} size=${15} /></button>
         </div>`)}`}
 
     ${aba === 'relatorios' && html`<${Relatorios} perfil=${perfil} membros=${membros} />`}

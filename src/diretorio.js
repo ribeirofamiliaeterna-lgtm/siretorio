@@ -1,9 +1,11 @@
-import { html, useState, useEffect, useMemo, sb, norm, phone, Spinner, Empty, Modal } from './core.js';
+import { html, useState, useEffect, useMemo, sb, norm, phone, toISO, Spinner, Empty, Modal, Chip, InfoTip, carregarXLSX, exportarExcel, SITUACAO_MEMBRO } from './core.js';
+import { IcMais, IcTelefone, IcWhats, IcEditar, IcFechar, IcPlanilha, IcBaixar, IcSubir } from './icons.js';
 
 const SETORES = ['Areal', 'Arniqueiras', 'Park Way', 'AC Sul', 'AC Norte', 'Águas Claras', 'Taguatinga', 'Outros'];
 const SETOR_LEGADO = { AR: 'Areal', SHA: 'Arniqueiras', PW: 'Park Way', ACS: 'AC Sul', ACN: 'AC Norte', AC: 'Águas Claras', TAG: 'Taguatinga', OUT: 'Outros' };
 export const setorNome = s => SETOR_LEGADO[s] || s || '—';
 
+// ─── Formulário de família ───────────────────────────────────────────────
 function FormFamilia({ perfil, fam, membros, onClose, onSaved, show }) {
   const [f, setF] = useState(fam || { sobrenome: '', chefe: '', telefone: '', endereco: '', setor: '' });
   const [ms, setMs] = useState(membros ? membros.map(m => ({ ...m })) : []);
@@ -25,25 +27,26 @@ function FormFamilia({ perfil, fam, membros, onClose, onSaved, show }) {
       famId = data.id;
     }
     for (const m of ms) {
-      if (m._del && m.id) await sb.from('membros').delete().eq('id', m.id);
+      // "excluir" = sai do acompanhamento (ativo=false); o histórico de presenças fica
+      if (m._del && m.id) await sb.from('membros').update({ ativo: false }).eq('id', m.id);
       else if (!m._del && m.nome.trim()) {
         const row = { nome: m.nome.trim(), sexo: m.sexo || '', idade: m.idade ? Number(m.idade) : null, is_membro: m.is_membro !== false };
         if (m.id) await sb.from('membros').update(row).eq('id', m.id);
         else await sb.from('membros').insert({ ...row, ala_id: perfil.ala_id, familia_id: famId });
       }
     }
-    setBusy(false); show('Família salva ✅'); onSaved(); onClose();
+    setBusy(false); show('Família salva.'); onSaved(); onClose();
   };
 
   const excluir = async () => {
-    if (!confirm(`Excluir a família ${f.sobrenome} e todos os seus membros? Esta ação não pode ser desfeita.`)) return;
+    if (!confirm(`Excluir a família ${f.sobrenome} e todos os seus membros? O histórico de presenças deles também será apagado. Esta ação não pode ser desfeita.`)) return;
     const { error } = await sb.from('familias').delete().eq('id', f.id);
     if (error) return show(error.message, false);
     show('Família excluída.'); onSaved(); onClose();
   };
 
   return html`<${Modal} onClose=${onClose}>
-    <div style=${{ fontWeight: 800, fontSize: 17 }}>${f.id ? 'Editar família' : 'Nova família'}</div>
+    <div class="titulo-secao">${f.id ? 'Editar família' : 'Nova família'}</div>
     <label class="lbl">Sobrenome *</label>
     <input class="inp" value=${f.sobrenome} onInput=${e => set('sobrenome', e.target.value)} />
     <label class="lbl">Nome do chefe da família</label>
@@ -58,9 +61,9 @@ function FormFamilia({ perfil, fam, membros, onClose, onSaved, show }) {
       ${SETORES.map(s => html`<option value=${s} selected=${setorNome(f.setor) === s}>${s}</option>`)}
     </select>
     <div style=${{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 }}>
-      <span style=${{ fontSize: 13, fontWeight: 800 }}>Membros</span>
+      <span class="titulo-secao" style=${{ fontSize: 14 }}>Membros</span>
       <button class="btn btn-s" style=${{ padding: '5px 10px', fontSize: 12 }}
-        onClick=${() => setMs(a => [...a, { nome: '', sexo: '', idade: '', is_membro: true }])}>+ Adicionar</button>
+        onClick=${() => setMs(a => [...a, { nome: '', sexo: '', idade: '', is_membro: true }])}><${IcMais} size=${13} /> Adicionar</button>
     </div>
     ${ms.map((m, i) => m._del ? null : html`
       <div key=${i} style=${{ display: 'flex', gap: 6, marginTop: 8, alignItems: 'center' }}>
@@ -69,8 +72,8 @@ function FormFamilia({ perfil, fam, membros, onClose, onSaved, show }) {
           <option value="">—</option><option value="F" selected=${m.sexo === 'F'}>F</option><option value="M" selected=${m.sexo === 'M'}>M</option>
         </select>
         <input class="inp" style=${{ flex: 1, minWidth: 52 }} type="number" placeholder="Idade" value=${m.idade ?? ''} onInput=${e => setM(i, 'idade', e.target.value)} />
-        <button style=${{ color: '#DC2626', fontSize: 17, padding: 4 }} title="Remover"
-          onClick=${() => m.id ? setM(i, '_del', true) : setMs(a => a.filter((_, j) => j !== i))}>✕</button>
+        <button style=${{ color: 'var(--vermelho)', padding: 4 }} title="Remover do acompanhamento"
+          onClick=${() => m.id ? setM(i, '_del', true) : setMs(a => a.filter((_, j) => j !== i))}><${IcFechar} size=${15} /></button>
       </div>`)}
     <div style=${{ display: 'flex', gap: 8, marginTop: 18 }}>
       ${f.id && html`<button class="btn btn-d" onClick=${excluir}>Excluir</button>`}
@@ -80,17 +83,145 @@ function FormFamilia({ perfil, fam, membros, onClose, onSaved, show }) {
   <//>`;
 }
 
+// ─── Substituição do diretório ───────────────────────────────────────────
+// Atualiza quem já existe (sem duplicar), insere os novos e marca quem saiu
+// com o selo "Fora do diretório" — o histórico e os relatórios são preservados.
+function SubstituirDiretorio({ perfil, fams, membros, onClose, onDone, show }) {
+  const [plano, setPlano] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  const exportarAtual = () => {
+    const famById = new Map(fams.map(f => [f.id, f]));
+    const linhas = [['Sobrenome da família', 'Chefe da família', 'Telefone', 'Endereço', 'Setor', 'Nome do membro', 'Sexo (M/F)', 'Idade']];
+    membros.filter(m => m.ativo && m.situacao === 'diretorio').forEach(m => {
+      const f = famById.get(m.familia_id) || {};
+      linhas.push([f.sobrenome || '', f.chefe || '', f.telefone || '', f.endereco || '', setorNome(f.setor) === '—' ? '' : setorNome(f.setor), m.nome, m.sexo || '', m.idade ?? '']);
+    });
+    exportarExcel(`diretorio-${perfil.alas?.slug || 'ala'}-${toISO(new Date())}.xlsx`, [{ nome: 'Diretório', linhas }]);
+  };
+
+  const analisar = async file => {
+    setBusy(true);
+    try {
+      const X = await carregarXLSX();
+      const wb = X.read(await file.arrayBuffer());
+      const linhas = X.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: true }).slice(1)
+        .filter(r => r && String(r[0] || '').trim());
+      if (linhas.length === 0) throw new Error('Nenhuma linha encontrada — a planilha deve seguir o modelo exportado.');
+
+      const famNovas = new Map();          // chave sobrenome|chefe → dados + membros
+      for (const r of linhas) {
+        const [sobrenome, chefe, telefone, endereco, setor, nomeMembro, sexo, idade] = r.map(v => v == null ? '' : String(v).trim());
+        const k = `${norm(sobrenome)}|${norm(chefe)}`;
+        if (!famNovas.has(k)) famNovas.set(k, { sobrenome, chefe, telefone, endereco, setor, membros: [] });
+        if (nomeMembro) famNovas.get(k).membros.push({ nome: nomeMembro, sexo: ['M', 'F'].includes(sexo.toUpperCase()) ? sexo.toUpperCase() : '', idade: idade ? Number(idade) || null : null });
+      }
+
+      const famAtualPorChave = new Map(fams.map(f => [`${norm(f.sobrenome)}|${norm(f.chefe)}`, f]));
+      const membroPorNome = new Map(membros.filter(m => m.ativo).map(m => [norm(m.nome), m]));
+      const nomesImportados = new Set();
+      let novosMembros = 0, atualizados = 0, novasFamilias = 0;
+      famNovas.forEach((fn, k) => {
+        if (!famAtualPorChave.has(k)) novasFamilias++;
+        fn.membros.forEach(m => {
+          nomesImportados.add(norm(m.nome));
+          if (membroPorNome.has(norm(m.nome))) atualizados++; else novosMembros++;
+        });
+      });
+      const saem = membros.filter(m => m.ativo && m.situacao === 'diretorio' && !nomesImportados.has(norm(m.nome)));
+      const retornam = membros.filter(m => m.ativo && m.situacao === 'fora_diretorio' && nomesImportados.has(norm(m.nome))).length;
+      setPlano({ famNovas, novasFamilias, novosMembros, atualizados, saem, retornam });
+    } catch (e) { show(`Erro ao ler a planilha: ${e.message}`, false); }
+    setBusy(false);
+  };
+
+  const aplicar = async () => {
+    setBusy(true);
+    try {
+      const famAtualPorChave = new Map(fams.map(f => [`${norm(f.sobrenome)}|${norm(f.chefe)}`, f]));
+      const membroPorNome = new Map(membros.filter(m => m.ativo).map(m => [norm(m.nome), m]));
+      for (const [k, fn] of plano.famNovas) {
+        let fam = famAtualPorChave.get(k);
+        const dados = { sobrenome: fn.sobrenome, chefe: fn.chefe, telefone: fn.telefone, endereco: fn.endereco, setor: fn.setor, atualizado_em: new Date().toISOString() };
+        if (fam) {
+          const { error } = await sb.from('familias').update(dados).eq('id', fam.id);
+          if (error) throw new Error(error.message);
+        } else {
+          const { data, error } = await sb.from('familias').insert({ ...dados, ala_id: perfil.ala_id }).select().single();
+          if (error) throw new Error(error.message);
+          fam = data;
+        }
+        for (const m of fn.membros) {
+          const atual = membroPorNome.get(norm(m.nome));
+          const dadosM = { familia_id: fam.id, sexo: m.sexo, idade: m.idade, situacao: 'diretorio', ativo: true };
+          const { error } = atual
+            ? await sb.from('membros').update(dadosM).eq('id', atual.id)
+            : await sb.from('membros').insert({ ...dadosM, nome: m.nome, ala_id: perfil.ala_id, is_membro: true });
+          if (error) throw new Error(error.message);
+        }
+      }
+      if (plano.saem.length) {
+        const { error } = await sb.from('membros').update({ situacao: 'fora_diretorio' })
+          .in('id', plano.saem.map(m => m.id));
+        if (error) throw new Error(error.message);
+      }
+      show('Diretório substituído com sucesso.');
+      onDone(); onClose();
+    } catch (e) { show(`Erro na substituição: ${e.message}`, false); }
+    setBusy(false);
+  };
+
+  return html`<${Modal} onClose=${onClose}>
+    <div class="titulo-secao">Substituir diretório</div>
+    <div style=${{ fontSize: 12.5, color: 'var(--tinta2)', margin: '6px 0 14px', lineHeight: 1.6 }}>
+      Use quando receber a lista atualizada da ala. Nada é apagado:
+      quem já existe é <strong>atualizado</strong> (sem duplicar), quem chegou é <strong>incluído</strong> e
+      quem não consta mais recebe o selo <strong>Fora do diretório</strong> — permanecendo nos relatórios e no histórico.
+      Membros adicionados manualmente não são afetados.
+    </div>
+    <button class="btn btn-s" style=${{ width: '100%', fontSize: 12.5, marginBottom: 8 }} onClick=${exportarAtual}>
+      <${IcBaixar} size=${14} /> 1. Baixar diretório atual (modelo)
+    </button>
+    <label class="btn btn-p" style=${{ width: '100%', fontSize: 12.5, cursor: 'pointer', opacity: busy ? .6 : 1 }}>
+      <${IcSubir} size=${14} /> 2. Enviar planilha do novo diretório
+      <input type="file" accept=".xlsx,.xls,.csv" style=${{ display: 'none' }} disabled=${busy}
+        onChange=${e => { if (e.target.files[0]) analisar(e.target.files[0]); e.target.value = ''; }} />
+    </label>
+    ${plano && html`
+      <div class="card" style=${{ padding: 14, marginTop: 12, background: 'var(--azul-claro)', border: '1px solid #CFE0EE' }}>
+        <div style=${{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Confira antes de aplicar:</div>
+        <div style=${{ fontSize: 12.5, color: 'var(--tinta2)', lineHeight: 1.8 }}>
+          ${plano.novasFamilias} nova(s) família(s) · ${plano.novosMembros} membro(s) novo(s) ·
+          ${plano.atualizados} atualizado(s)${plano.retornam ? ` · ${plano.retornam} retornam ao diretório` : ''}
+          <div style=${{ color: plano.saem.length ? 'var(--vermelho)' : 'var(--verde)', marginTop: 4 }}>
+            ${plano.saem.length === 0 ? 'Ninguém sai do diretório.' :
+              `${plano.saem.length} membro(s) receberão o selo "Fora do diretório":`}
+          </div>
+          ${plano.saem.slice(0, 12).map(m => html`<div style=${{ fontSize: 12 }}>· ${m.nome}</div>`)}
+          ${plano.saem.length > 12 && html`<div style=${{ fontSize: 11.5 }}>… e mais ${plano.saem.length - 12}.</div>`}
+        </div>
+        <button class="btn btn-p" style=${{ width: '100%', marginTop: 12, opacity: busy ? .6 : 1 }} disabled=${busy} onClick=${aplicar}>
+          ${busy ? 'Aplicando…' : 'Aplicar substituição'}
+        </button>
+      </div>`}
+    <button class="btn btn-s" style=${{ width: '100%', marginTop: 10 }} onClick=${onClose}>Fechar</button>
+  <//>`;
+}
+
+// ─── Diretório ───────────────────────────────────────────────────────────
 export function Diretorio({ perfil, show }) {
   const [fams, setFams] = useState(null);
   const [membros, setMembros] = useState([]);
   const [busca, setBusca] = useState('');
+  const [filtro, setFiltro] = useState('todos');   // todos | fora_diretorio | manual
   const [aberta, setAberta] = useState(null);
-  const [edit, setEdit] = useState(null); // {fam, membros} | 'nova'
+  const [edit, setEdit] = useState(null);
+  const [substituir, setSubstituir] = useState(false);
 
   const carregar = async () => {
     const [{ data: f }, { data: m }] = await Promise.all([
       sb.from('familias').select('*').eq('ala_id', perfil.ala_id).order('sobrenome'),
-      sb.from('membros').select('*').eq('ala_id', perfil.ala_id).order('nome'),
+      sb.from('membros').select('*').eq('ala_id', perfil.ala_id).eq('ativo', true).order('nome'),
     ]);
     setFams(f || []); setMembros(m || []);
   };
@@ -102,22 +233,40 @@ export function Diretorio({ perfil, show }) {
     return map;
   }, [membros]);
 
+  const contagens = useMemo(() => ({
+    fora: membros.filter(m => m.situacao === 'fora_diretorio').length,
+    manual: membros.filter(m => m.situacao === 'manual').length,
+  }), [membros]);
+
   const visiveis = useMemo(() => {
     if (!fams) return [];
     const q = norm(busca);
-    if (!q) return fams;
-    return fams.filter(f => norm(`${f.sobrenome} ${f.chefe}`).includes(q)
-      || (porFamilia.get(f.id) || []).some(m => norm(m.nome).includes(q)));
-  }, [fams, busca, porFamilia]);
+    return fams.filter(f => {
+      const ms = porFamilia.get(f.id) || [];
+      if (filtro !== 'todos' && !ms.some(m => m.situacao === filtro)) return false;
+      if (!q) return true;
+      return norm(`${f.sobrenome} ${f.chefe}`).includes(q) || ms.some(m => norm(m.nome).includes(q));
+    });
+  }, [fams, busca, filtro, porFamilia]);
 
   if (!fams) return html`<${Spinner}/>`;
 
   return html`
-    <div class="hdr">📖 Diretório</div>
-    <div class="sub">${fams.length} famílias · ${membros.length} pessoas</div>
-    <div style=${{ display: 'flex', gap: 8, marginBottom: 12 }}>
+    <div class="hdr">Diretório</div>
+    <div class="sub">${fams.length} famílias · ${membros.length} pessoas em acompanhamento</div>
+    <div style=${{ display: 'flex', gap: 8, marginBottom: 10 }}>
       <input class="inp" type="search" placeholder="Buscar por nome ou sobrenome…" value=${busca} onInput=${e => setBusca(e.target.value)} />
-      <button class="btn btn-p" style=${{ whiteSpace: 'nowrap' }} onClick=${() => setEdit('nova')}>+ Família</button>
+      <button class="btn btn-p" style=${{ whiteSpace: 'nowrap' }} onClick=${() => setEdit('nova')}><${IcMais} size=${14} /> Família</button>
+    </div>
+    <div style=${{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+      <div class="seg" style=${{ flex: 1, minWidth: 260 }}>
+        <button class=${filtro === 'todos' ? 'on' : ''} onClick=${() => setFiltro('todos')}>Todos</button>
+        <button class=${filtro === 'fora_diretorio' ? 'on' : ''} onClick=${() => setFiltro('fora_diretorio')}>Fora do diretório (${contagens.fora})</button>
+        <button class=${filtro === 'manual' ? 'on' : ''} onClick=${() => setFiltro('manual')}>Manuais (${contagens.manual})</button>
+      </div>
+      <button class="btn btn-s" style=${{ fontSize: 12 }} onClick=${() => setSubstituir(true)}>
+        <${IcPlanilha} size=${14} /> Substituir diretório
+      </button>
     </div>
     ${visiveis.length === 0 && html`<${Empty} msg="Nenhuma família encontrada." />`}
     ${visiveis.map(f => {
@@ -128,35 +277,41 @@ export function Diretorio({ perfil, show }) {
         <div style=${{ padding: '12px 14px', cursor: 'pointer' }} onClick=${() => setAberta(open ? null : f.id)}>
           <div style=${{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
             <div style=${{ flex: 1, minWidth: 0 }}>
-              <span style=${{ fontWeight: 700, fontSize: 15 }}>Família ${f.sobrenome}</span>
-              ${f.setor && html` <span class="chip" style=${{ background: '#EFF6FF', color: '#1D4ED8', border: '1px solid #BFDBFE' }}>${setorNome(f.setor)}</span>`}
-              <div style=${{ fontSize: 12, color: '#475569', marginTop: 2 }}>${f.chefe}</div>
-              <div style=${{ fontSize: 11, color: '#64748B', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📍 ${f.endereco || 'sem endereço'}</div>
-              <div style=${{ fontSize: 11, color: '#94A3B8', marginTop: 1 }}>👥 ${ms.length} membro${ms.length !== 1 ? 's' : ''}</div>
+              <span style=${{ fontWeight: 600, fontSize: 15 }}>Família ${f.sobrenome}</span>
+              ${f.setor && html` <${Chip} bg="var(--azul-claro)" t="var(--azul)">${setorNome(f.setor)}<//>`}
+              <div style=${{ fontSize: 12, color: 'var(--tinta2)', marginTop: 2 }}>${f.chefe}</div>
+              <div style=${{ fontSize: 11, color: 'var(--tinta3)', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>${f.endereco || 'sem endereço'}</div>
+              <div style=${{ fontSize: 11, color: 'var(--tinta3)', marginTop: 1 }}>${ms.length} membro${ms.length !== 1 ? 's' : ''}</div>
             </div>
-            <span style=${{ color: '#94A3B8' }}>${open ? '▲' : '▼'}</span>
+            <span style=${{ color: 'var(--tinta3)', fontSize: 11 }}>${open ? '▴' : '▾'}</span>
           </div>
         </div>
         ${open && html`
-        <div style=${{ borderTop: '1px solid #F1F5F9', padding: '12px 14px', background: '#FAFBFF' }}>
+        <div style=${{ borderTop: '1px solid var(--linha2)', padding: '12px 14px', background: 'var(--papel)' }}>
           ${f.telefone && html`
             <div style=${{ display: 'flex', gap: 6, marginBottom: 10 }}>
-              <a class="btn btn-s" style=${{ flex: 1, textDecoration: 'none', fontSize: 12 }} href=${`tel:${f.telefone}`}>📞 Ligar</a>
+              <a class="btn btn-s" style=${{ flex: 1, textDecoration: 'none', fontSize: 12 }} href=${`tel:${f.telefone}`}><${IcTelefone} size=${14} /> Ligar</a>
               ${phone(f.telefone).length >= 10 && html`
-                <a class="btn btn-g" style=${{ flex: 1, textDecoration: 'none', fontSize: 12 }} target="_blank" href=${`https://wa.me/${phone(f.telefone)}`}>💬 WhatsApp</a>`}
+                <a class="btn btn-g" style=${{ flex: 1, textDecoration: 'none', fontSize: 12 }} target="_blank" href=${`https://wa.me/${phone(f.telefone)}`}><${IcWhats} size=${14} /> WhatsApp</a>`}
             </div>`}
-          ${ms.map((m, i) => html`
-            <div key=${m.id} style=${{ fontSize: 12, color: '#475569', padding: '4px 0', display: 'flex', gap: 6, alignItems: 'center', borderBottom: i < ms.length - 1 ? '1px solid #F1F5F9' : 'none' }}>
-              <span>${m.sexo === 'F' ? '👩' : m.sexo === 'M' ? '👨' : '👤'}</span><span>${m.nome}</span>
-              ${m.idade != null && html`<span class="chip" style=${{ background: '#F1F5F9', color: '#94A3B8', fontSize: 10 }}>${m.idade} anos</span>`}
-              ${m.is_membro === false && html`<span class="chip" style=${{ background: '#FEF3C7', color: '#92400E', fontSize: 10 }}>não-membro</span>`}
-            </div>`)}
+          ${ms.map((m, i) => {
+            const selo = SITUACAO_MEMBRO[m.situacao];
+            return html`
+            <div key=${m.id} style=${{ fontSize: 12.5, color: 'var(--tinta2)', padding: '5px 0', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', borderBottom: i < ms.length - 1 ? '1px solid var(--linha2)' : 'none' }}>
+              <span>${m.nome}</span>
+              ${m.idade != null && html`<${Chip} bg="var(--linha2)" t="var(--tinta3)" style=${{ fontSize: 10 }}>${m.idade} anos<//>`}
+              ${m.is_membro === false && html`<${Chip} bg="var(--ambar-claro)" t="var(--ambar)" style=${{ fontSize: 10 }}>não-membro<//>`}
+              ${selo && html`<${Chip} bg=${selo.bg} t=${selo.t} style=${{ fontSize: 10 }}>${selo.l}<//>`}
+            </div>`;
+          })}
           <button class="btn btn-s" style=${{ width: '100%', marginTop: 12, fontSize: 12 }}
-            onClick=${() => setEdit({ fam: f, membros: ms })}>✏️ Editar família</button>
+            onClick=${() => setEdit({ fam: f, membros: ms })}><${IcEditar} size=${14} /> Editar família</button>
         </div>`}
       </div>`;
     })}
     ${edit && html`<${FormFamilia} perfil=${perfil} show=${show}
       fam=${edit === 'nova' ? null : edit.fam} membros=${edit === 'nova' ? [] : edit.membros}
-      onClose=${() => setEdit(null)} onSaved=${carregar} />`}`;
+      onClose=${() => setEdit(null)} onSaved=${carregar} />`}
+    ${substituir && html`<${SubstituirDiretorio} perfil=${perfil} fams=${fams} membros=${membros}
+      onClose=${() => setSubstituir(false)} onDone=${carregar} show=${show} />`}`;
 }

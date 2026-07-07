@@ -1,7 +1,8 @@
 import { html, render, useState, useEffect, sb, Spinner, useToast } from './core.js';
+import { IcPainel, IcAgenda, IcFrequencia, IcDiretorio, IcCasa, IcTv, IcGlobo, IcChave, IcSair } from './icons.js';
 import { Login } from './login.js';
 import { Dashboard } from './dashboard.js';
-import { Rodizio } from './rodizio.js';
+import { Frequencia } from './frequencia.js';
 import { Diretorio } from './diretorio.js';
 import { Qualificacao } from './qualificacao.js';
 import { Transmissao } from './transmissao.js';
@@ -9,12 +10,12 @@ import { Master } from './master.js';
 import { Agenda } from './agenda.js';
 
 const ROTAS = [
-  { id: 'dashboard',    ic: '📊', l: 'Painel',      c: Dashboard },
-  { id: 'agenda',       ic: '📋', l: 'Agenda',      c: Agenda },
-  { id: 'rodizio',      ic: '🗓️', l: 'Rodízio',     c: Rodizio },
-  { id: 'diretorio',    ic: '📖', l: 'Diretório',   c: Diretorio },
-  { id: 'qualificacao', ic: '🏠', l: 'Qualificação', c: Qualificacao },
-  { id: 'transmissao',  ic: '📺', l: 'Transmissão', c: Transmissao },
+  { id: 'dashboard',    Ic: IcPainel,     l: 'Painel',       c: Dashboard },
+  { id: 'agenda',       Ic: IcAgenda,     l: 'Agenda',       c: Agenda },
+  { id: 'frequencia',   Ic: IcFrequencia, l: 'Frequência',   c: Frequencia },
+  { id: 'diretorio',    Ic: IcDiretorio,  l: 'Diretório',    c: Diretorio },
+  { id: 'qualificacao', Ic: IcCasa,       l: 'Qualificação', c: Qualificacao },
+  { id: 'transmissao',  Ic: IcTv,         l: 'Transmissão',  c: Transmissao },
 ];
 
 function useHash() {
@@ -24,7 +25,8 @@ function useHash() {
     addEventListener('hashchange', on);
     return () => removeEventListener('hashchange', on);
   }, []);
-  return hash;
+  // rota antiga
+  return hash === 'rodizio' ? 'frequencia' : hash;
 }
 
 function TrocarSenha({ onClose, show }) {
@@ -36,17 +38,17 @@ function TrocarSenha({ onClose, show }) {
     const { error } = await sb.auth.updateUser({ password: s1 });
     setBusy(false);
     if (error) return show(error.message, false);
-    show('Senha alterada com sucesso ✅'); onClose();
+    show('Senha alterada com sucesso.'); onClose();
   };
   return html`
     <div class="modal-bg" onClick=${e => { if (e.target === e.currentTarget) onClose(); }}>
       <div class="modal">
-        <div style=${{ fontWeight: 800, fontSize: 17, marginBottom: 4 }}>Alterar senha</div>
+        <div class="titulo-secao">Alterar senha</div>
         <label class="lbl">Nova senha</label>
         <input class="inp" type="password" value=${s1} onInput=${e => setS1(e.target.value)} />
         <label class="lbl">Repetir nova senha</label>
         <input class="inp" type="password" value=${s2} onInput=${e => setS2(e.target.value)} />
-        <div style=${{ display: 'flex', gap: 8, marginTop: 16 }}>
+        <div style=${{ display: 'flex', gap: 8, marginTop: 18 }}>
           <button class="btn btn-s" style=${{ flex: 1 }} onClick=${onClose}>Cancelar</button>
           <button class="btn btn-p" style=${{ flex: 1, opacity: busy ? .6 : 1 }} disabled=${busy} onClick=${salvar}>Salvar</button>
         </div>
@@ -73,35 +75,37 @@ function Shell({ session }) {
   }, [session.user.id]);
 
   if (erro) return html`
-    <div class="page"><div class="card" style=${{ padding: 20, color: '#991B1B' }}>
-      ⚠️ ${erro}
+    <div class="page"><div class="card" style=${{ padding: 20, color: 'var(--vermelho)' }}>
+      ${erro}
       <div style=${{ marginTop: 12 }}><button class="btn btn-s" onClick=${() => sb.auth.signOut()}>Sair</button></div>
     </div></div>`;
   if (!perfil) return html`<${Spinner}/>`;
 
   const rotas = perfil.papel === 'master'
-    ? [...ROTAS, { id: 'master', ic: '🌐', l: 'Alas', c: Master }]
+    ? [...ROTAS, { id: 'master', Ic: IcGlobo, l: 'Alas', c: Master }]
     : ROTAS;
   const atual = rotas.find(r => r.id === rota) || rotas[0];
 
   return html`
     ${toastEl}
-    <nav class="nav">
+    <nav class="nav no-print">
       ${rotas.map(r => html`
         <button key=${r.id} class=${atual.id === r.id ? 'on' : ''} onClick=${() => { location.hash = `#/${r.id}`; }}>
-          <span class="ic">${r.ic}</span><span>${r.l}</span>
+          <${r.Ic} size=${19} /><span>${r.l}</span>
         </button>`)}
     </nav>
     <main class="page">
-      <div class="no-print" style=${{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <div>
-          <div style=${{ fontSize: 12, color: '#64748B', fontWeight: 600 }}>
-            ${perfil.alas?.nome || 'Painel geral'}${perfil.papel === 'master' ? ' · Master' : ''}
-          </div>
+      <div class="no-print" style=${{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+        <div class="serif" style=${{ fontSize: 13, color: 'var(--tinta2)', fontStyle: 'italic' }}>
+          ${perfil.alas?.nome || 'Painel geral'}${perfil.papel === 'master' ? ' · administrador' : ''}
         </div>
         <div style=${{ display: 'flex', gap: 6 }}>
-          <button class="btn btn-s" style=${{ padding: '6px 10px', fontSize: 12 }} onClick=${() => setMenuSenha(true)}>🔑 Senha</button>
-          <button class="btn btn-s" style=${{ padding: '6px 10px', fontSize: 12 }} onClick=${() => sb.auth.signOut()}>Sair</button>
+          <button class="btn btn-s" style=${{ padding: '6px 10px', fontSize: 12 }} onClick=${() => setMenuSenha(true)}>
+            <${IcChave} size=${14} /> Senha
+          </button>
+          <button class="btn btn-s" style=${{ padding: '6px 10px', fontSize: 12 }} onClick=${() => sb.auth.signOut()}>
+            <${IcSair} size=${14} /> Sair
+          </button>
         </div>
       </div>
       <${atual.c} perfil=${perfil} show=${show} />

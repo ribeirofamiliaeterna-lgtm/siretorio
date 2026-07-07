@@ -1,4 +1,5 @@
 import { html, useState, useEffect, useMemo, sb, norm, toISO, fmtBR, nextSunday, lastSunday, listSundays, Spinner, Empty } from './core.js';
+import { IcLink, IcCheck, IcMais } from './icons.js';
 
 const datasDisponiveis = () => {
   const prox = toISO(nextSunday());
@@ -40,7 +41,7 @@ export function Transmissao({ perfil, show }) {
       .upsert({ ala_id: perfil.ala_id, data, url: url.trim() }, { onConflict: 'ala_id,data' });
     setBusy(false);
     if (error) return show(error.message, false);
-    show('Link da transmissão salvo ✅'); carregar();
+    show('Link da transmissão salvo.'); carregar();
   };
 
   // Melhor correspondência no diretório para um nome informado
@@ -70,7 +71,7 @@ export function Transmissao({ perfil, show }) {
         { onConflict: 'reuniao_id,membro_id' });
       if (e1) throw new Error(e1.message);
       await sb.from('transmissao_participantes').update({ membro_id: membroId, processado: true }).eq('id', p.id);
-      show('Presença registrada via transmissão ✅'); carregar();
+      show('Presença registrada via transmissão.'); carregar();
     } catch (e) { show(e.message, false); }
     setBusy(false);
   };
@@ -103,7 +104,7 @@ export function Transmissao({ perfil, show }) {
   const membroById = new Map(membros.map(m => [m.id, m]));
 
   return html`
-    <div class="hdr">📺 Transmissão</div>
+    <div class="hdr">Transmissão</div>
     <div class="sub">Link semanal da reunião e presença de quem assistiu de casa</div>
     <select class="inp" style=${{ marginBottom: 10 }} value=${data} onChange=${e => setData(e.target.value)}>
       ${datasDisponiveis().map(d => html`<option value=${d} selected=${d === data}>
@@ -113,17 +114,17 @@ export function Transmissao({ perfil, show }) {
       <label class="lbl" style=${{ marginTop: 0 }}>Link da live no YouTube</label>
       <input class="inp" placeholder="https://youtube.com/live/…" value=${url} onInput=${e => setUrl(e.target.value)} />
       <button class="btn btn-p" style=${{ width: '100%', marginTop: 10, opacity: busy ? .6 : 1 }} disabled=${busy} onClick=${salvarLink}>
-        💾 Salvar link deste domingo
+        Salvar link deste domingo
       </button>
-      <div style=${{ marginTop: 14, padding: 12, background: '#F0FDF4', borderRadius: 10, border: '1px solid #BBF7D0' }}>
-        <div style=${{ fontSize: 11, fontWeight: 700, color: '#15803D', marginBottom: 4 }}>🔗 Link público para enviar aos membros (não muda de semana):</div>
-        <div style=${{ fontSize: 12, color: '#334155', wordBreak: 'break-all' }}>${linkPublico}</div>
+      <div style=${{ marginTop: 14, padding: 12, background: 'var(--verde-claro)', borderRadius: 10, border: '1px solid #CDE2D6' }}>
+        <div style=${{ fontSize: 11, fontWeight: 700, color: 'var(--verde)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 5 }}><${IcLink} size=${13} /> Link público para enviar aos membros (não muda de semana):</div>
+        <div style=${{ fontSize: 12, color: 'var(--tinta)', wordBreak: 'break-all' }}>${linkPublico}</div>
         <button class="btn btn-g" style=${{ width: '100%', marginTop: 8, fontSize: 12 }}
-          onClick=${() => { navigator.clipboard?.writeText(linkPublico); show('Link copiado 📋'); }}>Copiar link</button>
+          onClick=${() => { navigator.clipboard?.writeText(linkPublico); show('Link copiado.'); }}>Copiar link</button>
       </div>
     </div>
 
-    <div style=${{ fontWeight: 800, fontSize: 15, margin: '16px 0 8px' }}>
+    <div class="titulo-secao" style=${{ margin: '16px 0 8px' }}>
       Participantes informados ${carregado ? `(${parts.length})` : ''}
     </div>
     ${!carregado ? html`<${Spinner}/>` : parts.length === 0
@@ -133,26 +134,26 @@ export function Transmissao({ perfil, show }) {
         const sug = sugestao(p.nome_informado);
         return html`
         <div key=${p.id} class="card" style=${{ padding: '11px 14px' }}>
-          <div style=${{ fontWeight: 700, fontSize: 13 }}>${p.nome_informado}</div>
+          <div style=${{ fontWeight: 600, fontSize: 13 }}>${p.nome_informado}</div>
           ${sug ? html`
-            <div style=${{ fontSize: 11, color: '#15803D', margin: '3px 0 8px' }}>Diretório: <strong>${sug.nome}</strong></div>
+            <div style=${{ fontSize: 11, color: 'var(--verde)', margin: '3px 0 8px' }}>Diretório: <strong>${sug.nome}</strong></div>
             <div style=${{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              <button class="btn btn-g" style=${{ fontSize: 12, flex: 1 }} disabled=${busy} onClick=${() => confirmar(p, sug.id)}>✓ Confirmar presença</button>
+              <button class="btn btn-g" style=${{ fontSize: 12, flex: 1 }} disabled=${busy} onClick=${() => confirmar(p, sug.id)}><${IcCheck} size=${13} /> Confirmar presença</button>
               <button class="btn btn-s" style=${{ fontSize: 12 }} disabled=${busy} onClick=${() => cadastrarNaoMembro(p)}>Não é essa pessoa</button>
               <button class="btn btn-s" style=${{ fontSize: 12 }} onClick=${() => descartar(p)}>Ignorar</button>
             </div>` : html`
-            <div style=${{ fontSize: 11, color: '#B45309', margin: '3px 0 8px' }}>Não encontrado no diretório.</div>
+            <div style=${{ fontSize: 11, color: 'var(--ambar)', margin: '3px 0 8px' }}>Não encontrado no diretório.</div>
             <div style=${{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              <button class="btn btn-g" style=${{ fontSize: 12, flex: 1 }} disabled=${busy} onClick=${() => cadastrarNaoMembro(p)}>+ Cadastrar como não-membro e registrar presença</button>
+              <button class="btn btn-g" style=${{ fontSize: 12, flex: 1 }} disabled=${busy} onClick=${() => cadastrarNaoMembro(p)}><${IcMais} size=${13} /> Cadastrar como não-membro e registrar presença</button>
               <button class="btn btn-s" style=${{ fontSize: 12 }} onClick=${() => descartar(p)}>Ignorar</button>
             </div>`}
         </div>`;
       })}
       ${processados.length > 0 && html`
-        <div style=${{ fontSize: 12, fontWeight: 700, color: '#64748B', margin: '10px 0 6px' }}>Processados</div>
+        <div style=${{ fontSize: 12, fontWeight: 700, color: 'var(--tinta3)', margin: '10px 0 6px' }}>Processados</div>
         ${processados.map(p => html`
-          <div key=${p.id} style=${{ fontSize: 12, color: '#64748B', padding: '6px 2px', borderBottom: '1px solid #E2E8F0' }}>
-            ${p.membro_id ? '✅' : '➖'} ${p.nome_informado}
+          <div key=${p.id} style=${{ fontSize: 12, color: 'var(--tinta3)', padding: '6px 2px', borderBottom: '1px solid var(--linha2)' }}>
+            ${p.membro_id ? '✓' : '—'} ${p.nome_informado}
             ${p.membro_id && membroById.get(p.membro_id) ? ` → ${membroById.get(p.membro_id).nome}` : ''}
           </div>`)}`}`}`;
 }

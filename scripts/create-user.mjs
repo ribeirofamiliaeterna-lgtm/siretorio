@@ -32,6 +32,24 @@ const res = await fetch(`${env.SUPABASE_URL}/auth/v1/admin/users`, {
 });
 const data = await res.json();
 if (!res.ok) { console.error('Erro:', data.msg || JSON.stringify(data)); process.exit(1); }
-console.log(`✅ Usuário criado: ${email} (papel: ${papel}, ala: ${alaSlug})`);
+
+// Desde o v4.sql o gatilho não vincula mais ala/papel pelos metadados —
+// o vínculo é gravado direto no perfil com a chave administrativa.
+const headers = {
+  apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+  Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+  'Content-Type': 'application/json',
+  Prefer: 'return=representation',
+};
+const alaRes = await fetch(`${env.SUPABASE_URL}/rest/v1/alas?slug=eq.${encodeURIComponent(alaSlug)}&select=id`, { headers });
+const alas = await alaRes.json();
+if (!alas[0]) { console.error(`Erro: ala com slug "${alaSlug}" não encontrada.`); process.exit(1); }
+const perfilRes = await fetch(`${env.SUPABASE_URL}/rest/v1/profiles?id=eq.${data.id}`, {
+  method: 'PATCH', headers,
+  body: JSON.stringify({ nome, papel, ala_id: alas[0].id }),
+});
+if (!perfilRes.ok) { console.error('Erro ao vincular perfil:', await perfilRes.text()); process.exit(1); }
+
+console.log(`Usuário criado: ${email} (papel: ${papel}, ala: ${alaSlug})`);
 console.log(`   Senha: ${senha}`);
-console.log('   Peça para a pessoa trocar a senha no primeiro acesso (botão 🔑 Senha).');
+console.log('   Peça para a pessoa trocar a senha no primeiro acesso (botão Senha).');

@@ -1,13 +1,10 @@
-import { html, useState, useEffect, useMemo, sb, norm, toISO, fmtBR, Spinner, Empty } from './core.js';
+import { html, useState, useEffect, useMemo, sb, norm, toISO, fmtBR, Spinner, Empty, Chip, InfoTip, carregarXLSX } from './core.js';
+import { IcMicrofone, IcLivro, IcBaixar, IcSubir } from './icons.js';
 
-const carregarXLSX = async () => {
-  const m = await import('https://esm.sh/xlsx@0.18.5');
-  return m.default?.utils ? m.default : m;
-};
-
-// ─── RELATÓRIOS DE DISCURSANTES ──────────────────────────────────────────
+// ─── RELATÓRIOS DE PARTICIPAÇÃO (discursos e orações) ────────────────────
 export function Relatorios({ perfil, membros }) {
   const [parts, setParts] = useState(null);
+  const [tipo, setTipo] = useState('discurso');   // discurso | oracao
   const [busca, setBusca] = useState('');
 
   useEffect(() => {
@@ -17,12 +14,16 @@ export function Relatorios({ perfil, membros }) {
       .then(({ data }) => setParts(data || []));
   }, [perfil.ala_id]);
 
+  const rotulos = tipo === 'discurso'
+    ? { um: 'discurso', muitos: 'Discursos', verboNunca: 'nunca discursou', verboSem: 'sem discurso no histórico', quemMais: 'Quem mais discursa' }
+    : { um: 'oração', muitos: 'Orações', verboNunca: 'nunca orou', verboSem: 'sem oração no histórico', quemMais: 'Quem mais ora' };
+
   const calc = useMemo(() => {
     if (!parts) return null;
-    const discursos = parts.filter(p => p.tipo === 'discurso' && (p.membro_id || p.nome_livre));
+    const doTipo = parts.filter(p => p.tipo === tipo && (p.membro_id || p.nome_livre));
     const porMembro = new Map();
     let foraDiretorio = 0;
-    discursos.forEach(p => {
+    doTipo.forEach(p => {
       if (!p.membro_id) { foraDiretorio++; return; }
       if (!porMembro.has(p.membro_id)) porMembro.set(p.membro_id, { total: 0, ultimo: null });
       const r = porMembro.get(p.membro_id);
@@ -40,60 +41,100 @@ export function Relatorios({ perfil, membros }) {
         ? (a.ultimo === null ? a.nome.localeCompare(b.nome) : a.ultimo.localeCompare(b.ultimo))
         : (a.ultimo === null ? -1 : 1));
     const top = [...linhas].filter(l => l.total > 0).sort((a, b) => b.total - a.total || b.ultimo.localeCompare(a.ultimo));
+
+    // Gênero: conta apenas discursantes e oradores identificados no diretório
+    const sexoDe = new Map(membros.map(m => [m.id, m.sexo]));
+    const genero = { F: 0, M: 0, semDado: 0 };
+    parts.filter(p => ['discurso', 'oracao'].includes(p.tipo) && p.membro_id).forEach(p => {
+      const s = sexoDe.get(p.membro_id);
+      if (s === 'F' || s === 'M') genero[s]++; else genero.semDado++;
+    });
+    const totalGen = genero.F + genero.M;
+
     return {
-      totalDiscursos: discursos.length,
-      nuncaDiscursaram: linhas.filter(l => l.total === 0).length,
+      total: doTipo.length,
+      nunca: linhas.filter(l => l.total === 0).length,
       foraDiretorio, prioridade, top: top.slice(0, 10),
+      genero, totalGen,
     };
-  }, [parts, membros]);
+  }, [parts, membros, tipo]);
 
   if (!calc) return html`<${Spinner}/>`;
 
   const q = norm(busca);
   const prioridadeVisivel = (q ? calc.prioridade.filter(l => norm(l.nome).includes(q)) : calc.prioridade).slice(0, 30);
+  const pctF = calc.totalGen ? Math.round(calc.genero.F / calc.totalGen * 100) : 0;
 
   return html`
-    <div style=${{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
-      <div class="kpi"><div class="v">${calc.totalDiscursos}</div><div class="l">Discursos registrados</div></div>
-      <div class="kpi"><div class="v">${calc.nuncaDiscursaram}</div><div class="l">Membros sem discurso no histórico</div></div>
+    <div class="seg" style=${{ marginBottom: 10 }}>
+      <button class=${tipo === 'discurso' ? 'on' : ''} onClick=${() => setTipo('discurso')}><${IcMicrofone} size=${14} /> Discursos</button>
+      <button class=${tipo === 'oracao' ? 'on' : ''} onClick=${() => setTipo('oracao')}><${IcLivro} size=${14} /> Orações</button>
     </div>
-    ${calc.totalDiscursos === 0 && html`
-      <div class="card" style=${{ padding: 16, fontSize: 13, color: '#64748B' }}>
-        Ainda não há discursos registrados. Preencha as agendas dos domingos ou suba o histórico
+
+    <div style=${{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+      <div class="kpi"><div class="v">${calc.total}</div><div class="l">${rotulos.muitos} registrados
+        <${InfoTip} texto=${`Total de ${rotulos.muitos.toLowerCase()} lançados nas agendas (incluindo o histórico importado por planilha).`} /></div></div>
+      <div class="kpi"><div class="v">${calc.nunca}</div><div class="l">Membros ${rotulos.verboSem}
+        <${InfoTip} texto=${`Membros do diretório sem nenhuma ${rotulos.um} registrada. Convidá-los ajuda todos a participar.`} /></div></div>
+    </div>
+
+    ${calc.total === 0 && html`
+      <div class="card" style=${{ padding: 16, fontSize: 13, color: 'var(--tinta2)' }}>
+        Ainda não há ${rotulos.muitos.toLowerCase()} registrados. Preencha as agendas dos domingos ou suba o histórico
         antigo pela aba <strong>Planilha</strong> — os relatórios se montam sozinhos.
       </div>`}
 
+    ${calc.totalGen > 0 && html`
+      <div class="card" style=${{ padding: 14 }}>
+        <div class="titulo-secao">Participação por gênero
+          <${InfoTip} texto="Contabiliza somente discursantes e oradores (orações) identificados no diretório da ala, somando todo o histórico. Participações de pessoas fora do diretório ou sem sexo cadastrado não entram no cálculo." /></div>
+        <div style=${{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, color: 'var(--tinta2)', margin: '10px 0 4px' }}>
+          <span>Mulheres · ${calc.genero.F} (${pctF}%)</span>
+          <span>Homens · ${calc.genero.M} (${100 - pctF}%)</span>
+        </div>
+        <div style=${{ display: 'flex', height: 10, borderRadius: 6, overflow: 'hidden', background: 'var(--linha2)' }}>
+          <div style=${{ width: `${pctF}%`, background: 'var(--dourado)' }}></div>
+          <div style=${{ flex: 1, background: 'var(--azul)' }}></div>
+        </div>
+        ${calc.genero.semDado > 0 && html`
+          <div style=${{ fontSize: 11, color: 'var(--tinta3)', marginTop: 6 }}>
+            ${calc.genero.semDado} participação(ões) de membros sem sexo cadastrado no diretório ficaram de fora.
+          </div>`}
+      </div>`}
+
     <div class="card" style=${{ padding: 14 }}>
-      <div style=${{ fontWeight: 800, fontSize: 14 }}>🎯 Prioridade de convite</div>
-      <div style=${{ fontSize: 11, color: '#94A3B8', margin: '2px 0 10px' }}>
-        Quem está há mais tempo sem discursar aparece primeiro (sem registro no histórico = topo da lista).
+      <div class="titulo-secao">Prioridade de convite
+        <${InfoTip} texto=${`Ordena os membros do diretório por quem está há mais tempo sem ${tipo === 'discurso' ? 'discursar' : 'orar'}. Quem não tem registro nenhum aparece no topo.`} /></div>
+      <div style=${{ fontSize: 11.5, color: 'var(--tinta3)', margin: '2px 0 10px' }}>
+        Quem está há mais tempo sem participar aparece primeiro.
       </div>
       <input class="inp" type="search" placeholder="Buscar membro…" style=${{ marginBottom: 8, fontSize: 13 }}
         value=${busca} onInput=${e => setBusca(e.target.value)} />
       ${prioridadeVisivel.map((l, i) => html`
-        <div key=${l.id} style=${{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '7px 0', borderBottom: '1px solid #F1F5F9', fontSize: 13 }}>
-          <span style=${{ color: '#334155' }}><span style=${{ color: '#94A3B8', fontWeight: 700 }}>${i + 1}.</span> ${l.nome}</span>
+        <div key=${l.id} style=${{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '7px 0', borderBottom: '1px solid var(--linha2)', fontSize: 13 }}>
+          <span><span style=${{ color: 'var(--tinta3)', fontWeight: 600 }}>${i + 1}.</span> ${l.nome}</span>
           <span style=${{ flexShrink: 0 }}>
             ${l.ultimo
-              ? html`<span style=${{ color: '#64748B', fontSize: 12 }}>último: ${fmtBR(l.ultimo)} · ${l.total}x</span>`
-              : html`<span class="chip" style=${{ background: '#FEF3C7', color: '#92400E' }}>nunca discursou</span>`}
+              ? html`<span style=${{ color: 'var(--tinta2)', fontSize: 12 }}>última vez: ${fmtBR(l.ultimo)} · ${l.total}x</span>`
+              : html`<${Chip} bg="var(--ambar-claro)" t="var(--ambar)">${rotulos.verboNunca}<//>`}
           </span>
         </div>`)}
       ${!q && calc.prioridade.length > 30 && html`
-        <div style=${{ fontSize: 11, color: '#94A3B8', marginTop: 8 }}>Mostrando os 30 primeiros — use a busca para ver os demais.</div>`}
+        <div style=${{ fontSize: 11, color: 'var(--tinta3)', marginTop: 8 }}>Mostrando os 30 primeiros — use a busca para ver os demais.</div>`}
     </div>
 
     <div class="card" style=${{ padding: 14 }}>
-      <div style=${{ fontWeight: 800, fontSize: 14, marginBottom: 8 }}>🎤 Quem mais discursa</div>
+      <div class="titulo-secao" style=${{ marginBottom: 8 }}>${rotulos.quemMais}
+        <${InfoTip} texto=${`Membros com mais ${rotulos.muitos.toLowerCase()} no histórico completo das agendas.`} /></div>
       ${calc.top.length === 0 && html`<${Empty} msg="Sem dados ainda." />`}
       ${calc.top.map((l, i) => html`
-        <div key=${l.id} style=${{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '7px 0', borderBottom: '1px solid #F1F5F9', fontSize: 13 }}>
-          <span style=${{ color: '#334155' }}><span style=${{ color: '#94A3B8', fontWeight: 700 }}>${i + 1}.</span> ${l.nome}</span>
-          <span style=${{ color: '#64748B', fontSize: 12, flexShrink: 0 }}>${l.total} discurso${l.total > 1 ? 's' : ''} · último ${fmtBR(l.ultimo)}</span>
+        <div key=${l.id} style=${{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '7px 0', borderBottom: '1px solid var(--linha2)', fontSize: 13 }}>
+          <span><span style=${{ color: 'var(--tinta3)', fontWeight: 600 }}>${i + 1}.</span> ${l.nome}</span>
+          <span style=${{ color: 'var(--tinta2)', fontSize: 12, flexShrink: 0 }}>${l.total}x · última ${fmtBR(l.ultimo)}</span>
         </div>`)}
       ${calc.foraDiretorio > 0 && html`
-        <div style=${{ fontSize: 11, color: '#94A3B8', marginTop: 8 }}>
-          + ${calc.foraDiretorio} discurso(s) de pessoas fora do diretório (visitantes, estaca etc.).
+        <div style=${{ fontSize: 11, color: 'var(--tinta3)', marginTop: 8 }}>
+          + ${calc.foraDiretorio} participação(ões) de pessoas fora do diretório (visitantes, estaca etc.).
         </div>`}
     </div>`;
 }
@@ -136,7 +177,7 @@ export function Planilha({ perfil, show, membros, onImport }) {
         ['Data', 'Nome', 'Papel'],
         ['21/06/2026', 'Erica Aparecida da Costa Macêdo', '1º Discursante'],
         ['21/06/2026', 'Gabriela Pradera Resende', '2º Discursante'],
-        ['28/06/2026', 'Julie Emylly Mendes Ribeiro', 'Discursante'],
+        ['21/06/2026', 'Julie Emylly Mendes Ribeiro', 'Oração de abertura'],
       ];
       X.utils.book_append_sheet(wb, X.utils.aoa_to_sheet(dados), 'Historico');
       const inst = [
@@ -208,7 +249,7 @@ export function Planilha({ perfil, show, membros, onImport }) {
         totalParts += itens.length;
       }
       setResumo({ reunioes: porData.size, parts: totalParts, semMatch: [...new Set(semMatch)], invalidas });
-      show('Histórico importado ✅');
+      show('Histórico importado.');
       onImport?.();
     } catch (e) { show(`Erro na importação: ${e.message}`, false); }
     setBusy(false);
@@ -242,42 +283,42 @@ export function Planilha({ perfil, show, membros, onImport }) {
 
   return html`
     <div class="card" style=${{ padding: 14 }}>
-      <div style=${{ fontWeight: 800, fontSize: 14 }}>📥 Subir histórico antigo</div>
-      <div style=${{ fontSize: 12, color: '#64748B', margin: '4px 0 10px' }}>
+      <div class="titulo-secao">Subir histórico antigo</div>
+      <div style=${{ fontSize: 12, color: 'var(--tinta2)', margin: '4px 0 10px' }}>
         Baixe o modelo, preencha uma linha por participação (data, nome, papel) e importe.
         As reuniões e discursos entram no histórico e alimentam os relatórios.
       </div>
       <div style=${{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <button class="btn btn-s" style=${{ flex: 1, fontSize: 12, opacity: busy ? .6 : 1 }} disabled=${busy} onClick=${baixarModelo}>
-          ⬇️ Baixar modelo (Excel)
+          <${IcBaixar} size=${14} /> Baixar modelo (Excel)
         </button>
         <label class="btn btn-p" style=${{ flex: 1, fontSize: 12, opacity: busy ? .6 : 1, cursor: 'pointer' }}>
-          ⬆️ Importar planilha preenchida
+          <${IcSubir} size=${14} /> Importar planilha preenchida
           <input type="file" accept=".xlsx,.xls,.csv" style=${{ display: 'none' }} disabled=${busy}
             onChange=${e => { if (e.target.files[0]) importar(e.target.files[0]); e.target.value = ''; }} />
         </label>
       </div>
       ${resumo && html`
-        <div style=${{ marginTop: 12, padding: 12, background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 10, fontSize: 12, color: '#334155' }}>
-          ✅ <strong>${resumo.reunioes}</strong> reuniões e <strong>${resumo.parts}</strong> participações importadas.
+        <div style=${{ marginTop: 12, padding: 12, background: 'var(--verde-claro)', border: '1px solid #CDE2D6', borderRadius: 10, fontSize: 12, color: 'var(--tinta)' }}>
+          <strong>${resumo.reunioes}</strong> reuniões e <strong>${resumo.parts}</strong> participações importadas.
           ${resumo.semMatch.length > 0 && html`
-            <div style=${{ marginTop: 6, color: '#92400E' }}>
-              ⚠️ ${resumo.semMatch.length} nome(s) não encontrados no diretório (ficaram registrados como texto):
+            <div style=${{ marginTop: 6, color: 'var(--ambar)' }}>
+              ${resumo.semMatch.length} nome(s) não encontrados no diretório (ficaram registrados como texto):
               ${' ' + resumo.semMatch.slice(0, 8).join('; ')}${resumo.semMatch.length > 8 ? '…' : ''}
             </div>`}
           ${resumo.invalidas.length > 0 && html`
-            <div style=${{ marginTop: 6, color: '#991B1B' }}>❌ ${resumo.invalidas.length} linha(s) com data inválida foram ignoradas.</div>`}
+            <div style=${{ marginTop: 6, color: 'var(--vermelho)' }}>${resumo.invalidas.length} linha(s) com data inválida foram ignoradas.</div>`}
         </div>`}
     </div>
 
     <div class="card" style=${{ padding: 14 }}>
-      <div style=${{ fontWeight: 800, fontSize: 14 }}>📤 Exportar histórico completo</div>
-      <div style=${{ fontSize: 12, color: '#64748B', margin: '4px 0 10px' }}>
+      <div class="titulo-secao">Exportar histórico completo</div>
+      <div style=${{ fontSize: 12, color: 'var(--tinta2)', margin: '4px 0 10px' }}>
         Gera um Excel com todas as participações (discursos, orações, funções) e outra aba com hinos e textos.
         Serve como backup — guarde uma cópia de tempos em tempos.
       </div>
       <button class="btn btn-g" style=${{ width: '100%', fontSize: 12, opacity: busy ? .6 : 1 }} disabled=${busy} onClick=${exportar}>
-        ⬇️ Exportar tudo (Excel)
+        <${IcBaixar} size=${14} /> Exportar tudo (Excel)
       </button>
     </div>`;
 }
