@@ -1,4 +1,4 @@
-import { html, useState, useEffect, useMemo, useRef, sb, norm, toISO, fmtBR, nextSunday, lastSunday, Spinner, Empty, Modal, exportarPDF } from './core.js';
+import { html, useState, useEffect, useMemo, useRef, sb, norm, toISO, fmtBR, nextSunday, lastSunday, Spinner, Empty, Modal, InfoTip, exportarPDF } from './core.js';
 import { Relatorios, Planilha } from './agenda-relatorios.js';
 import { IcLivro, IcImprimir, IcVoltar, IcMais, IcFechar, IcOlho } from './icons.js';
 import { HINOS } from './hinos.js';
@@ -22,8 +22,8 @@ const MODELO = [
   ['abertura', 'Anúncios', 'texto'],
   ['abertura', 'Hino de abertura', 'hino'],
   ['abertura', 'Oração de abertura', 'oracao'],
-  ['assuntos', 'Desobrigações', 'texto'],
-  ['assuntos', 'Apoios', 'texto'],
+  ['assuntos', 'Desobrigações', 'desobrigacao'],
+  ['assuntos', 'Apoios', 'apoio'],
   ['servico', 'Hino sacramental', 'hino'],
   ['discursos', '1º Discursante', 'discurso'],
   ['discursos', '2º Discursante', 'discurso'],
@@ -42,9 +42,18 @@ const TIPOS_NOVOS = [
   ['participacao', 'Participação especial'],
   ['oracao', 'Oração'],
   ['hino', 'Hino'],
+  ['apoio', 'Apoio'],
+  ['desobrigacao', 'Desobrigação'],
   ['texto', 'Texto livre'],
 ];
 const ehPessoa = t => ['funcao', 'oracao', 'discurso', 'participacao'].includes(t);
+const ehApoioDesobrigacao = t => ['apoio', 'desobrigacao'].includes(t);
+// Texto combinado (pessoa + chamado) usado na leitura/impressão dos itens de
+// Apoio e Desobrigação — os dois campos juntos são o que faz sentido ler.
+const nomeApoioDesobrigacao = (i, membros) => {
+  const pessoa = i.membro_id ? (membros.find(m => m.id === i.membro_id)?.nome || i.nome_livre) : i.nome_livre;
+  return [pessoa, i.conteudo?.trim()].filter(Boolean).join(' — ');
+};
 
 // ─── Seletor de pessoa com autocompletar do diretório ───────────────────
 export function PersonPicker({ membros, membroId, nomeLivre, onPick, autoFocus }) {
@@ -207,11 +216,15 @@ function Editor({ perfil, show, agenda, membros, onVoltar, onLeitura }) {
     </div>
     <div class="hdr" style=${{ fontSize: 17 }}>Agenda de ${fmtBR(agenda.data)}</div>
     <div style=${{ display: 'flex', gap: 8, alignItems: 'center', margin: '8px 0 14px', flexWrap: 'wrap' }}>
-      <label style=${{ fontSize: 12, fontWeight: 700, color: 'var(--tinta2)' }}>Frequência:</label>
+      <label style=${{ fontSize: 12, fontWeight: 700, color: 'var(--tinta2)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+        Estimativa manual
+        <${InfoTip} texto="Número digitado à mão, só para constar na listagem de agendas — não é a frequência oficial. Use quando a Frequência da Ala ainda não tiver sido registrada." />
+      </label>
       <input class="inp" type="number" style=${{ width: 90 }} value=${freq}
         onInput=${e => setFreq(e.target.value)} onBlur=${salvarFreq} />
-      ${presRodizio != null && html`
-        <span class="chip" style=${{ background: 'var(--azul-claro)', color: 'var(--azul)' }}>A Frequência da Ala registrou ${presRodizio} presentes</span>`}
+      ${presRodizio != null
+        ? html`<span class="chip" style=${{ background: 'var(--verde-claro)', color: 'var(--verde)' }}>Registrado na Frequência da Ala: ${presRodizio} presentes</span>`
+        : html`<span class="chip" style=${{ background: 'var(--linha2)', color: 'var(--tinta3)' }}>Ainda sem registro na Frequência da Ala</span>`}
     </div>
 
     ${Object.entries(SECOES).map(([sec, nomeSec]) => {
@@ -248,6 +261,16 @@ function Editor({ perfil, show, agenda, membros, onVoltar, onLeitura }) {
               ? html`<${PersonPicker} membros=${membros} membroId=${item.membro_id} nomeLivre=${item.nome_livre}
                   autoFocus=${focoSubstituir === item.id}
                   onPick=${p => { salvarItem(item.id, p); setFocoSubstituir(null); }} />`
+              : ehApoioDesobrigacao(item.tipo)
+              ? html`<div style=${{ display: 'flex', gap: 6 }}>
+                  <${PersonPicker} membros=${membros} membroId=${item.membro_id} nomeLivre=${item.nome_livre}
+                    onPick=${p => salvarItem(item.id, p)} />
+                  <input class="inp" style=${{ flex: 1, fontSize: 13 }}
+                    placeholder=${item.tipo === 'apoio' ? 'Chamado (ex: Professor(a) da Primária)' : 'Chamado do qual está sendo desobrigado(a)'}
+                    value=${item.conteudo || ''}
+                    onInput=${e => setItens(a => a.map(i => i.id === item.id ? { ...i, conteudo: e.target.value } : i))}
+                    onBlur=${e => salvarItem(item.id, { conteudo: e.target.value })} />
+                </div>`
               : item.tipo === 'hino'
                 ? html`<${HinoPicker} valor=${item.conteudo}
                     onChange=${v => { setItens(a => a.map(i => i.id === item.id ? { ...i, conteudo: v } : i)); salvarItem(item.id, { conteudo: v }); }} />`
@@ -266,7 +289,7 @@ function Editor({ perfil, show, agenda, membros, onVoltar, onLeitura }) {
 function NovoItem({ onAdd, onCancel }) {
   const [tipo, setTipo] = useState('discurso');
   const [rotulo, setRotulo] = useState('');
-  const sugestao = { discurso: '3º Discursante', participacao: 'Apresentação musical', oracao: 'Oração', hino: 'Hino', texto: 'Observações' };
+  const sugestao = { discurso: '3º Discursante', participacao: 'Apresentação musical', oracao: 'Oração', hino: 'Hino', apoio: 'Apoio', desobrigacao: 'Desobrigação', texto: 'Observações' };
   return html`
   <div style=${{ background: 'var(--papel)', border: '1px dashed var(--linha)', borderRadius: 10, padding: 10 }}>
     <div style=${{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -292,6 +315,7 @@ function Leitura({ perfil, agenda, membros, onVoltar }) {
   }, [agenda.id]);
   if (!itens) return html`<${Spinner}/>`;
   const nomeDe = i => i.membro_id ? (membros.find(m => m.id === i.membro_id)?.nome || i.nome_livre) : i.nome_livre;
+  const valorDe = i => ehApoioDesobrigacao(i.tipo) ? nomeApoioDesobrigacao(i, membros) : (ehPessoa(i.tipo) ? nomeDe(i) : i.conteudo);
 
   return html`
   <div>
@@ -305,18 +329,20 @@ function Leitura({ perfil, agenda, membros, onVoltar }) {
         <div class="serif" style=${{ fontSize: 26, fontWeight: 700, marginTop: 4, color: 'var(--azul)' }}>${perfil.alas?.nome || ''}</div>
         <div style=${{ fontSize: 14, color: 'var(--tinta2)', marginTop: 4 }}>${fmtBR(agenda.data)}</div>
       </div>
-      ${Object.entries(SECOES).map(([sec, nomeSec]) => {
-        const daSecao = itens.filter(i => i.secao === sec)
-          .filter(i => ehPessoa(i.tipo) ? nomeDe(i) : i.conteudo.trim());
+      ${Object.entries(SECOES).map(([sec, nomeSec], secIdx) => {
+        const daSecao = itens.filter(i => i.secao === sec).filter(i => valorDe(i)?.trim());
         if (daSecao.length === 0) return null;
         return html`
-        <div key=${sec} style=${{ marginBottom: 22 }}>
-          <div class="serif secao-titulo" style=${{ fontSize: 13, fontWeight: 700, color: 'var(--azul)', textTransform: 'uppercase', letterSpacing: 2, textAlign: 'center', marginBottom: 4 }}>${nomeSec}</div>
-          ${daSecao.map((i, idx) => html`
-            <div key=${i.id} class="item-leitura" style=${idx % 2 === 1 ? { background: 'var(--papel)' } : {}}>
-              <div class="rotulo-leitura">${i.rotulo}</div>
-              <div class="conteudo-leitura">${ehPessoa(i.tipo) ? nomeDe(i) : i.conteudo}</div>
-            </div>`)}
+        <div key=${sec}>
+          ${secIdx > 0 && html`<hr class="regra" style=${{ margin: '18px 0', borderTopColor: 'var(--linha)' }} />`}
+          <div class="serif secao-titulo" style=${{ fontWeight: 700, color: 'var(--azul)', textTransform: 'uppercase', letterSpacing: 2, textAlign: 'center', marginBottom: 8 }}>${nomeSec}</div>
+          <div class="secao-bloco" style=${{ border: '1px solid var(--linha)' }}>
+            ${daSecao.map((i, idx) => html`
+              <div key=${i.id} class="item-leitura" style=${idx % 2 === 1 ? { background: 'var(--papel)' } : { background: '#FFF' }}>
+                <div class="rotulo-leitura">${i.rotulo}</div>
+                <div class="conteudo-leitura">${valorDe(i)}</div>
+              </div>`)}
+          </div>
         </div>`;
       })}
     </div>
@@ -339,16 +365,18 @@ function ExportarPeriodo({ perfil, membros, onClose, show }) {
       const nomeDe = new Map(membros.map(m => [m.id, m.nome]));
       const paginas = await Promise.all(ags.map(async (ag, idx) => {
         const { data: itens } = await sb.from('agenda_itens').select('*').eq('agenda_id', ag.id).order('ordem');
+        const valorDe = i => ehApoioDesobrigacao(i.tipo)
+          ? [i.membro_id ? nomeDe.get(i.membro_id) : i.nome_livre, i.conteudo?.trim()].filter(Boolean).join(' — ')
+          : (ehPessoa(i.tipo) ? (i.membro_id ? nomeDe.get(i.membro_id) : i.nome_livre) : i.conteudo);
         const secoesHtml = Object.entries(SECOES).map(([sec, nomeSec]) => {
-          const daSecao = (itens || []).filter(i => i.secao === sec)
-            .filter(i => ehPessoa(i.tipo) ? (i.membro_id ? nomeDe.get(i.membro_id) : i.nome_livre) : i.conteudo.trim());
+          const daSecao = (itens || []).filter(i => i.secao === sec).filter(i => valorDe(i)?.trim());
           if (daSecao.length === 0) return '';
           return `<div style="margin-bottom:16px">
             <div style="font-family:'Palatino Linotype',serif;font-size:11.5px;font-weight:700;color:#16436B;text-transform:uppercase;letter-spacing:1.6px;text-align:center;margin-bottom:6px">${nomeSec}</div>
             ${daSecao.map(i => `
               <div style="text-align:center;padding:8px 6px;border-bottom:1px solid #E5E2DB">
                 <div style="font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#8A9099;margin-bottom:3px">${i.rotulo}</div>
-                <div style="font-family:'Palatino Linotype',serif;font-size:15px;color:#23282E">${(ehPessoa(i.tipo) ? (i.membro_id ? nomeDe.get(i.membro_id) : i.nome_livre) : i.conteudo) || ''}</div>
+                <div style="font-family:'Palatino Linotype',serif;font-size:15px;color:#23282E">${valorDe(i) || ''}</div>
               </div>`).join('')}
           </div>`;
         }).join('');
@@ -477,7 +505,7 @@ export function Agenda({ perfil, show, readOnly }) {
         <div key=${ag.id} class="card" style=${{ padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
           <div style=${{ cursor: 'pointer', flex: 1 }} onClick=${() => { setAtual(ag); setModo('editor'); }}>
             <div style=${{ fontWeight: 700, fontSize: 14 }}>Domingo ${fmtBR(ag.data)}</div>
-            <div style=${{ fontSize: 11, color: 'var(--tinta3)' }}>${ag.frequencia ? `Frequência: ${ag.frequencia}` : 'Frequência não informada'}</div>
+            <div style=${{ fontSize: 11, color: 'var(--tinta3)' }}>${ag.frequencia ? `Estimativa manual: ${ag.frequencia}` : 'Sem estimativa manual'}</div>
           </div>
           <button class="btn btn-s" style=${{ fontSize: 12 }} onClick=${() => { setAtual(ag); setModo('leitura'); }}><${IcOlho} size=${14} /> Ver</button>
           ${!readOnly && html`<button style=${{ color: 'var(--vermelho)', fontSize: 15, padding: 4 }} onClick=${() => excluirAgenda(ag)}><${IcFechar} size=${15} /></button>`}

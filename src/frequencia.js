@@ -328,6 +328,26 @@ export function Frequencia({ perfil, show, readOnly }) {
     setAlertasRegistro(x => x.filter(y => y.id !== a.id));
   };
 
+  // Lista unificada: alertas de falta consecutiva e de registro sistêmico
+  // pendente, ordenados juntos por data — sem separar em categorias, cada
+  // um com um rótulo indicando do que se trata.
+  const todosAlertas = useMemo(() => [
+    ...alertas.map(a => ({
+      id: `f-${a.id}`, data: a.referencia, cor: 'var(--vermelho)',
+      rotulo: 'Falta consecutiva', rotuloBg: 'var(--vermelho-claro)', rotuloT: 'var(--vermelho)',
+      titulo: a.membros?.nome || '(removido)', situacao: a.membros?.situacao,
+      detalhe: `Faltou nos domingos ${fmtBR(toISO(new Date(fromISO(a.referencia) - 7 * 864e5)))} e ${fmtBR(a.referencia)}`,
+      acaoLabel: 'Dispensar', acao: () => dispensarAlerta(a),
+    })),
+    ...alertasRegistro.map(a => ({
+      id: `r-${a.id}`, data: a.data, cor: 'var(--ambar)',
+      rotulo: 'Registro sistêmico', rotuloBg: 'var(--ambar-claro)', rotuloT: 'var(--ambar)',
+      titulo: a.descricao, situacao: null,
+      detalhe: `Domingo ${fmtBR(a.data)}`,
+      acaoLabel: 'Repassado', acao: () => dispensarAlertaRegistro(a),
+    })),
+  ].sort((a, b) => b.data.localeCompare(a.data)), [alertas, alertasRegistro]);
+
   if (!fams) return html`<${Spinner}/>`;
 
   const q = norm(busca);
@@ -371,39 +391,22 @@ export function Frequencia({ perfil, show, readOnly }) {
 
     ${aba === 'alertas' && html`
       <div style=${{ fontSize: 12.5, color: 'var(--tinta2)', marginBottom: 10, display: 'flex', gap: 6, alignItems: 'flex-start' }}>
-        <span>Membros ativos que faltaram dois domingos seguidos.</span>
-        <${InfoTip} texto="Considera-se ativo quem registrou ao menos uma presença nos 3 meses anteriores. Se um membro ativo falta em dois domingos consecutivos, o alerta é criado. Dispensar o alerta não apaga as faltas — apenas o aviso." />
+        <span>Alertas de faltas consecutivas e de registros sistêmicos pendentes, acumulados de uma semana para a outra até serem dispensados.</span>
+        <${InfoTip} texto="Falta consecutiva: membro ativo (com presença nos 3 meses anteriores) que faltou dois domingos seguidos. Registro sistêmico: Apoio ou Desobrigação lançado na agenda que ainda precisa ser repassado ao registro oficial da Igreja (aparece a partir de domingo ao meio-dia). Nenhum dos dois some sozinho — só ao dispensar." />
       </div>
-      ${alertas.length === 0 && html`<${Empty} msg="Nenhum alerta de ausência pendente." />`}
-      ${alertas.map(a => html`
-        <div key=${a.id} class="card" style=${{ padding: '12px 14px', borderLeft: '3px solid var(--vermelho)' }}>
+      ${todosAlertas.length === 0 && html`<${Empty} msg="Nenhum alerta pendente." />`}
+      ${todosAlertas.map(a => html`
+        <div key=${a.id} class="card" style=${{ padding: '12px 14px', borderLeft: `3px solid ${a.cor}` }}>
           <div style=${{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <div>
-              <div style=${{ fontWeight: 600, fontSize: 13.5 }}>
-                ${a.membros?.nome}
-                ${SITUACAO_MEMBRO[a.membros?.situacao] && html` <${Chip} bg=${SITUACAO_MEMBRO[a.membros.situacao].bg} t=${SITUACAO_MEMBRO[a.membros.situacao].t} style=${{ fontSize: 10 }}>${SITUACAO_MEMBRO[a.membros.situacao].l}<//>`}
+              <div style=${{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                <${Chip} bg=${a.rotuloBg} t=${a.rotuloT} style=${{ fontSize: 10 }}>${a.rotulo}<//>
+                <span style=${{ fontWeight: 600, fontSize: 13.5 }}>${a.titulo}</span>
+                ${SITUACAO_MEMBRO[a.situacao] && html`<${Chip} bg=${SITUACAO_MEMBRO[a.situacao].bg} t=${SITUACAO_MEMBRO[a.situacao].t} style=${{ fontSize: 10 }}>${SITUACAO_MEMBRO[a.situacao].l}<//>`}
               </div>
-              <div style=${{ fontSize: 11.5, color: 'var(--tinta2)', marginTop: 2 }}>
-                Faltou nos domingos ${fmtBR(toISO(new Date(fromISO(a.referencia) - 7 * 864e5)))} e ${fmtBR(a.referencia)}
-              </div>
+              <div style=${{ fontSize: 11.5, color: 'var(--tinta2)', marginTop: 3 }}>${a.detalhe}</div>
             </div>
-            ${!readOnly && html`<button class="btn btn-s" style=${{ fontSize: 12 }} onClick=${() => dispensarAlerta(a)}>Dispensar</button>`}
-          </div>
-        </div>`)}
-
-      <div class="titulo-secao" style=${{ margin: '18px 0 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
-        Registro sistêmico pendente
-        <${InfoTip} texto="Gerado quando um Apoio ou Desobrigação é lançado na agenda da reunião. Aparece a partir de domingo ao meio-dia, como lembrete para repassar ao registro sistêmico oficial da Igreja." />
-      </div>
-      ${alertasRegistro.length === 0 && html`<${Empty} msg="Nenhum registro pendente." />`}
-      ${alertasRegistro.map(a => html`
-        <div key=${a.id} class="card" style=${{ padding: '12px 14px', borderLeft: '3px solid var(--ambar)' }}>
-          <div style=${{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <div>
-              <div style=${{ fontWeight: 600, fontSize: 13.5 }}>${a.descricao}</div>
-              <div style=${{ fontSize: 11.5, color: 'var(--tinta2)', marginTop: 2 }}>Domingo ${fmtBR(a.data)}</div>
-            </div>
-            ${!readOnly && html`<button class="btn btn-s" style=${{ fontSize: 12 }} onClick=${() => dispensarAlertaRegistro(a)}>Repassado</button>`}
+            ${!readOnly && html`<button class="btn btn-s" style=${{ fontSize: 12 }} onClick=${a.acao}>${a.acaoLabel}</button>`}
           </div>
         </div>`)}`}
 

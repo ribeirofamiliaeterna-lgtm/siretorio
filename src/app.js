@@ -1,4 +1,4 @@
-import { html, render, useState, useEffect, sb, Spinner, useToast, Rodape } from './core.js';
+import { html, render, useState, useEffect, sb, Spinner, useToast } from './core.js';
 import { IcPainel, IcAgenda, IcFrequencia, IcDiretorio, IcCasa, IcTv, IcGlobo, IcChave, IcSair, IcEscudo } from './icons.js';
 import { Login } from './login.js';
 import { Dashboard } from './dashboard.js';
@@ -154,7 +154,6 @@ function Shell({ session }) {
         : atual.id === 'usuarios'
           ? html`<${atual.c} perfil=${perfil} show=${show} />`
           : html`<${atual.c} perfil=${perfilEfetivo} show=${show} readOnly=${nivelDe(atual.id) === 'visualizar'} />`}
-      <div class="no-print"><${Rodape}/></div>
     </main>
     ${menuSenha && html`<${TrocarSenha} onClose=${() => setMenuSenha(false)} show=${show} />`}`;
 }

@@ -70,7 +70,7 @@ export const Empty = ({ msg }) => html`
   <div style=${{ textAlign: 'center', padding: '36px 20px', color: 'var(--tinta3)', fontSize: 13 }}>${msg}</div>`;
 
 // ─── Aviso institucional ─────────────────────────────────────────────────
-export const AVISO_NAO_OFICIAL = 'Este sistema não é um aplicativo oficial de A Igreja de Jesus Cristo dos Santos dos Últimos Dias. É uma ferramenta independente, mantida pela liderança local, desenvolvida para seguir estritamente as normas e diretrizes estabelecidas pela Igreja.';
+export const AVISO_NAO_OFICIAL = 'Este sistema não é um aplicativo oficial de A Igreja de Jesus Cristo dos Santos dos Últimos Dias. É uma ferramenta independente, mantida pela liderança local e desenvolvida seguindo estritamente as diretrizes estabelecidas pela Igreja.';
 
 export const Rodape = () => html`
   <div style=${{ textAlign: 'center', fontSize: 10.5, color: 'var(--tinta3)', lineHeight: 1.6, padding: '18px 24px 14px', maxWidth: 480, margin: '0 auto' }}>
@@ -166,23 +166,29 @@ export async function sincronizarAlertas(alaId) {
 const HORA_LIMITE_REGISTRO = 12;
 export async function sincronizarAlertasRegistro(alaId) {
   const { data: itens } = await sb.from('agenda_itens')
-    .select('id, rotulo, conteudo, agendas!inner(data)')
+    .select('id, rotulo, conteudo, membro_id, nome_livre, agendas!inner(data), membros(nome)')
     .eq('ala_id', alaId).in('rotulo', ['Apoios', 'Desobrigações']);
   if (!itens || itens.length === 0) return;
 
   const agora = new Date();
   const prontos = itens.filter(i => {
-    if (!i.conteudo?.trim()) return false;
+    const pessoa = i.membros?.nome || i.nome_livre;
+    if (!pessoa?.trim() && !i.conteudo?.trim()) return false;
     const limite = fromISO(i.agendas.data); limite.setHours(HORA_LIMITE_REGISTRO, 0, 0, 0);
     return agora >= limite;
   });
   if (prontos.length === 0) return;
 
   await sb.from('alertas_registro').upsert(
-    prontos.map(i => ({
-      ala_id: alaId, agenda_item_id: i.id, tipo: 'apoio_desobrigacao',
-      descricao: `${i.rotulo}: ${i.conteudo.trim()}`, data: i.agendas.data,
-    })),
+    prontos.map(i => {
+      const pessoa = i.membros?.nome || i.nome_livre;
+      const chamado = i.conteudo?.trim();
+      const descricao = [pessoa, chamado].filter(Boolean).join(' — ');
+      return {
+        ala_id: alaId, agenda_item_id: i.id, tipo: 'apoio_desobrigacao',
+        descricao: `${i.rotulo}: ${descricao}`, data: i.agendas.data,
+      };
+    }),
     { onConflict: 'agenda_item_id' });
 }
 

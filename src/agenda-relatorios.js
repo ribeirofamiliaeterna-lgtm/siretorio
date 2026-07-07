@@ -269,6 +269,10 @@ export function Planilha({ perfil, show, membros, onImport }) {
         if (['discurso', 'oracao', 'participacao', 'funcao'].includes(i.tipo)) {
           const nome = i.membro_id ? nomeDe.get(i.membro_id) || i.nome_livre : i.nome_livre;
           if (nome) pessoas.push([fmtBR(i.agendas.data), i.rotulo, i.tipo, nome, i.membro_id ? 'Sim' : 'Não']);
+        } else if (['apoio', 'desobrigacao'].includes(i.tipo)) {
+          const nome = i.membro_id ? nomeDe.get(i.membro_id) || i.nome_livre : i.nome_livre;
+          const conteudo = [nome, i.conteudo?.trim()].filter(Boolean).join(' — ');
+          if (conteudo) outros.push([fmtBR(i.agendas.data), i.rotulo, conteudo]);
         } else if (i.conteudo.trim()) {
           outros.push([fmtBR(i.agendas.data), i.rotulo, i.conteudo]);
         }

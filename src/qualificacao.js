@@ -77,6 +77,16 @@ function CardQual({ f, ms, q, onUpd, show, readOnly }) {
     if (novo !== 'pendente') setOpen(false);
   };
 
+  const salvarNota = async () => {
+    if (nota === (q?.nota || '')) return;   // nada mudou
+    const { error } = await sb.from('qualificacao').upsert(
+      { familia_id: f.id, ala_id: f.ala_id, status: s, nota, atualizado_em: new Date().toISOString() },
+      { onConflict: 'familia_id' });
+    if (error) return show(error.message, false);
+    onUpd(f.id, { familia_id: f.id, status: s, nota });
+    show('Observação salva.');
+  };
+
   return html`
   <div class="card" style=${s !== 'pendente' ? { borderColor: v.b } : {}}>
     <div style=${{ padding: '12px 14px', cursor: 'pointer' }} onClick=${() => setOpen(o => !o)}>
@@ -107,7 +117,7 @@ function CardQual({ f, ms, q, onUpd, show, readOnly }) {
       ${q?.atualizado_em && html`<div style=${{ fontSize: 11, color: 'var(--tinta3)', marginBottom: 6 }}>Última atualização: ${fmtBR(q.atualizado_em.slice(0, 10))}</div>`}
       <label class="lbl">Observação</label>
       <textarea class="inp" rows="2" placeholder="Ex: mudou para SP, sem resposta…" value=${nota} disabled=${readOnly}
-        onInput=${e => setNota(e.target.value)} style=${{ resize: 'none' }}></textarea>
+        onInput=${e => setNota(e.target.value)} onBlur=${salvarNota} style=${{ resize: 'none' }}></textarea>
       ${!readOnly && html`
       <div style=${{ display: 'flex', gap: 6, marginTop: 10, opacity: busy ? .6 : 1 }}>
         <button class="btn btn-g" style=${{ flex: 1, fontSize: 12 }} disabled=${busy} onClick=${() => marcar('residente')}>Reside</button>

@@ -81,15 +81,20 @@
     /* Documento de leitura do púlpito: fonte grande, centralizado, linhas
        diferenciadas — pensado para ser impresso e levado à reunião. */
     .folha-leitura{max-width:620px;margin:0 auto}
-    .folha-leitura .item-leitura{text-align:center;padding:14px 10px;border-bottom:1px solid var(--linha2);border-radius:8px}
-    .folha-leitura .rotulo-leitura{font-size:11px;font-weight:700;letter-spacing:1.6px;text-transform:uppercase;color:var(--tinta3);margin-bottom:7px}
-    .folha-leitura .conteudo-leitura{font-family:var(--serif);font-size:21px;color:var(--tinta);line-height:1.45}
+    .folha-leitura .secao-bloco{border-radius:10px;overflow:hidden;margin-bottom:20px}
+    .folha-leitura .item-leitura{text-align:center;padding:12px 10px}
+    .folha-leitura .item-leitura+.item-leitura{border-top:1px solid var(--linha2)}
+    .folha-leitura .rotulo-leitura{font-size:12px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;color:var(--tinta3);margin-bottom:6px}
+    .folha-leitura .conteudo-leitura{font-family:var(--serif);font-size:14px;color:var(--tinta);line-height:1.5}
+    .folha-leitura .secao-titulo{font-size:14px}
     @media print{
       .folha-leitura{max-width:100%}
-      .folha-leitura .item-leitura{padding:13pt 6pt;border-bottom:1px solid #E5E2DB;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-      .folha-leitura .rotulo-leitura{font-size:9.5pt}
-      .folha-leitura .conteudo-leitura{font-size:20pt}
-      .folha-leitura .secao-titulo{font-size:12.5pt}
+      .folha-leitura .secao-bloco{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      .folha-leitura .item-leitura{padding:11pt 6pt}
+      .folha-leitura .item-leitura+.item-leitura{border-top:1px solid #E5E2DB}
+      .folha-leitura .rotulo-leitura{font-size:11pt}
+      .folha-leitura .conteudo-leitura{font-size:14pt}
+      .folha-leitura .secao-titulo{font-size:14pt}
     }
   </style>
 </head>

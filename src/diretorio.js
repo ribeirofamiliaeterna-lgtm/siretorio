@@ -437,23 +437,29 @@ export function Diretorio({ perfil, show, readOnly }) {
   if (!fams) return html`<${Spinner}/>`;
 
   return html`
-    <div class="hdr">Diretório</div>
+    <div class="hdr" style=${{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      Diretório
+      <${InfoTip} texto="Famílias e pessoas em acompanhamento da ala. Toque numa família para ver telefone, endereço e membros; use a busca para encontrar por nome ou sobrenome." />
+    </div>
     <div class="sub">${fams.length} famílias · ${membros.length} pessoas em acompanhamento</div>
     <div style=${{ display: 'flex', gap: 8, marginBottom: 10 }}>
       <input class="inp" type="search" placeholder="Buscar por nome ou sobrenome…" value=${busca} onInput=${e => setBusca(e.target.value)} />
       ${!readOnly && html`<button class="btn btn-p" style=${{ whiteSpace: 'nowrap' }} onClick=${() => setEdit('nova')}><${IcMais} size=${14} /> Família</button>`}
     </div>
-    <div style=${{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+    <div style=${{ display: 'flex', gap: 6, marginBottom: 4, flexWrap: 'wrap', alignItems: 'center' }}>
       <div class="seg" style=${{ flex: 1, minWidth: 260 }}>
         <button class=${filtro === 'todos' ? 'on' : ''} onClick=${() => setFiltro('todos')}>Todos</button>
         <button class=${filtro === 'fora_diretorio' ? 'on' : ''} onClick=${() => setFiltro('fora_diretorio')}>Fora do diretório (${contagens.fora})</button>
         <button class=${filtro === 'manual' ? 'on' : ''} onClick=${() => setFiltro('manual')}>Manuais (${contagens.manual})</button>
       </div>
+      <${InfoTip} texto="Todos: todas as famílias cadastradas. Fora do diretório: saíram na última substituição do diretório, mas ficam com histórico e relatórios preservados. Manuais: pessoas incluídas à mão (ex.: visitante em acompanhamento), sem vir da lista oficial da Igreja." />
       ${!readOnly && html`
       <button class="btn btn-s" style=${{ fontSize: 12 }} onClick=${() => setSubstituir(true)}>
         <${IcPlanilha} size=${14} /> Substituir diretório
-      </button>`}
+      </button>
+      <${InfoTip} texto="Envie a lista atualizada da ala (PDF “Lista de Membros” da Igreja, ou planilha) para atualizar famílias e membros de uma vez. Nada é apagado: quem sair da lista fica marcado como “Fora do diretório”, preservando o histórico." />`}
     </div>
+    <div style=${{ marginBottom: 8 }}></div>
     ${visiveis.length === 0 && html`<${Empty} msg="Nenhuma família encontrada." />`}
     ${visiveis.map(f => {
       const ms = porFamilia.get(f.id) || [];
