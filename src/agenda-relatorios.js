@@ -193,7 +193,7 @@ export function Planilha({ perfil, show, membros, onImport }) {
         ['• Apague as linhas de exemplo antes de importar.'],
       ];
       X.utils.book_append_sheet(wb, X.utils.aoa_to_sheet(inst), 'Instruções');
-      X.writeFile(wb, 'modelo-historico-siretorio.xlsx');
+      X.writeFile(wb, 'modelo-historico-painel-gestao.xlsx');
     } catch (e) { show(`Erro ao gerar modelo: ${e.message}`, false); }
     setBusy(false);
   };
@@ -276,7 +276,7 @@ export function Planilha({ perfil, show, membros, onImport }) {
       const wb = X.utils.book_new();
       X.utils.book_append_sheet(wb, X.utils.aoa_to_sheet(pessoas), 'Participações');
       X.utils.book_append_sheet(wb, X.utils.aoa_to_sheet(outros), 'Hinos e textos');
-      X.writeFile(wb, `siretorio-historico-${toISO(new Date())}.xlsx`);
+      X.writeFile(wb, `historico-agenda-${toISO(new Date())}.xlsx`);
     } catch (e) { show(`Erro ao exportar: ${e.message}`, false); }
     setBusy(false);
   };

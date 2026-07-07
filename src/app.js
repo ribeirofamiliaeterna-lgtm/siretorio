@@ -1,4 +1,4 @@
-import { html, render, useState, useEffect, sb, Spinner, useToast } from './core.js';
+import { html, render, useState, useEffect, sb, Spinner, useToast, Rodape } from './core.js';
 import { IcPainel, IcAgenda, IcFrequencia, IcDiretorio, IcCasa, IcTv, IcGlobo, IcChave, IcSair } from './icons.js';
 import { Login } from './login.js';
 import { Dashboard } from './dashboard.js';
@@ -60,6 +60,7 @@ function Shell({ session }) {
   const [perfil, setPerfil] = useState(null);
   const [erro, setErro] = useState('');
   const [menuSenha, setMenuSenha] = useState(false);
+  const [permMap, setPermMap] = useState(null);
   const [toastEl, show] = useToast();
   const rota = useHash();
 
@@ -74,16 +75,34 @@ function Shell({ session }) {
     })();
   }, [session.user.id]);
 
+  useEffect(() => {
+    if (!perfil) return;
+    if (perfil.papel === 'master') { setPermMap({}); return; }
+    sb.from('permissoes_perfil').select('modulo, nivel').eq('perfil_id', perfil.id)
+      .then(({ data }) => setPermMap(Object.fromEntries((data || []).map(p => [p.modulo, p.nivel]))));
+  }, [perfil?.id]);
+
   if (erro) return html`
     <div class="page"><div class="card" style=${{ padding: 20, color: 'var(--vermelho)' }}>
       ${erro}
       <div style=${{ marginTop: 12 }}><button class="btn btn-s" onClick=${() => sb.auth.signOut()}>Sair</button></div>
     </div></div>`;
-  if (!perfil) return html`<${Spinner}/>`;
+  if (!perfil || permMap === null) return html`<${Spinner}/>`;
 
-  const rotas = perfil.papel === 'master'
+  // Sem linha de permissão para o módulo = acesso total (compatibilidade).
+  const nivelDe = m => perfil.papel === 'master' ? 'editar' : (permMap[m] ?? 'editar');
+
+  const todasRotas = perfil.papel === 'master'
     ? [...ROTAS, { id: 'master', Ic: IcGlobo, l: 'Alas', c: Master }]
     : ROTAS;
+  const rotas = todasRotas.filter(r => r.id === 'master' || nivelDe(r.id) !== 'nenhum');
+
+  if (rotas.length === 0) return html`
+    <div class="page"><div class="card" style=${{ padding: 20, color: 'var(--tinta2)' }}>
+      Nenhum módulo liberado para o seu usuário. Fale com o administrador.
+      <div style=${{ marginTop: 12 }}><button class="btn btn-s" onClick=${() => sb.auth.signOut()}>Sair</button></div>
+    </div></div>`;
+
   const atual = rotas.find(r => r.id === rota) || rotas[0];
 
   return html`
@@ -108,7 +127,10 @@ function Shell({ session }) {
           </button>
         </div>
       </div>
-      <${atual.c} perfil=${perfil} show=${show} />
+      ${atual.id === 'master'
+        ? html`<${atual.c} perfil=${perfil} show=${show} />`
+        : html`<${atual.c} perfil=${perfil} show=${show} readOnly=${nivelDe(atual.id) === 'visualizar'} />`}
+      <div class="no-print"><${Rodape}/></div>
     </main>
     ${menuSenha && html`<${TrocarSenha} onClose=${() => setMenuSenha(false)} show=${show} />`}`;
 }

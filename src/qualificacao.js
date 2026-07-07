@@ -59,7 +59,7 @@ function PainelQual({ fams, quals }) {
     </div>`;
 }
 
-function CardQual({ f, ms, q, onUpd, show }) {
+function CardQual({ f, ms, q, onUpd, show, readOnly }) {
   const [open, setOpen] = useState(false);
   const [nota, setNota] = useState(q?.nota || '');
   const [busy, setBusy] = useState(false);
@@ -106,18 +106,19 @@ function CardQual({ f, ms, q, onUpd, show }) {
       </div>
       ${q?.atualizado_em && html`<div style=${{ fontSize: 11, color: 'var(--tinta3)', marginBottom: 6 }}>Última atualização: ${fmtBR(q.atualizado_em.slice(0, 10))}</div>`}
       <label class="lbl">Observação</label>
-      <textarea class="inp" rows="2" placeholder="Ex: mudou para SP, sem resposta…" value=${nota}
+      <textarea class="inp" rows="2" placeholder="Ex: mudou para SP, sem resposta…" value=${nota} disabled=${readOnly}
         onInput=${e => setNota(e.target.value)} style=${{ resize: 'none' }}></textarea>
+      ${!readOnly && html`
       <div style=${{ display: 'flex', gap: 6, marginTop: 10, opacity: busy ? .6 : 1 }}>
         <button class="btn btn-g" style=${{ flex: 1, fontSize: 12 }} disabled=${busy} onClick=${() => marcar('residente')}>Reside</button>
         <button class="btn btn-d" style=${{ flex: 1, fontSize: 12 }} disabled=${busy} onClick=${() => marcar('saiu')}>Saiu da área</button>
         <button class="btn btn-s" style=${{ flex: 1, fontSize: 12 }} disabled=${busy} onClick=${() => marcar('pendente')}>Pendente</button>
-      </div>
+      </div>`}
     </div>`}
   </div>`;
 }
 
-export function Qualificacao({ perfil, show }) {
+export function Qualificacao({ perfil, show, readOnly }) {
   const [aba, setAba] = useState('painel');
   const [fams, setFams] = useState(null);
   const [membros, setMembros] = useState([]);
@@ -182,5 +183,5 @@ export function Qualificacao({ perfil, show }) {
         onInput=${e => setBusca(e.target.value)} style=${{ marginBottom: 12 }} />
       ${visiveis.length === 0 && html`<${Empty} msg="Nenhuma família neste filtro." />`}
       ${visiveis.map(f => html`<${CardQual} key=${f.id} f=${f} ms=${porFamilia.get(f.id) || []} q=${quals[f.id]}
-        show=${show} onUpd=${(id, novo) => setQuals(o => ({ ...o, [id]: { ...o[id], ...novo } }))} />`)}`}`;
+        show=${show} readOnly=${readOnly} onUpd=${(id, novo) => setQuals(o => ({ ...o, [id]: { ...o[id], ...novo } }))} />`)}`}`;
 }

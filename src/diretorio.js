@@ -209,7 +209,7 @@ function SubstituirDiretorio({ perfil, fams, membros, onClose, onDone, show }) {
 }
 
 // ─── Diretório ───────────────────────────────────────────────────────────
-export function Diretorio({ perfil, show }) {
+export function Diretorio({ perfil, show, readOnly }) {
   const [fams, setFams] = useState(null);
   const [membros, setMembros] = useState([]);
   const [busca, setBusca] = useState('');
@@ -256,7 +256,7 @@ export function Diretorio({ perfil, show }) {
     <div class="sub">${fams.length} famílias · ${membros.length} pessoas em acompanhamento</div>
     <div style=${{ display: 'flex', gap: 8, marginBottom: 10 }}>
       <input class="inp" type="search" placeholder="Buscar por nome ou sobrenome…" value=${busca} onInput=${e => setBusca(e.target.value)} />
-      <button class="btn btn-p" style=${{ whiteSpace: 'nowrap' }} onClick=${() => setEdit('nova')}><${IcMais} size=${14} /> Família</button>
+      ${!readOnly && html`<button class="btn btn-p" style=${{ whiteSpace: 'nowrap' }} onClick=${() => setEdit('nova')}><${IcMais} size=${14} /> Família</button>`}
     </div>
     <div style=${{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
       <div class="seg" style=${{ flex: 1, minWidth: 260 }}>
@@ -264,9 +264,10 @@ export function Diretorio({ perfil, show }) {
         <button class=${filtro === 'fora_diretorio' ? 'on' : ''} onClick=${() => setFiltro('fora_diretorio')}>Fora do diretório (${contagens.fora})</button>
         <button class=${filtro === 'manual' ? 'on' : ''} onClick=${() => setFiltro('manual')}>Manuais (${contagens.manual})</button>
       </div>
+      ${!readOnly && html`
       <button class="btn btn-s" style=${{ fontSize: 12 }} onClick=${() => setSubstituir(true)}>
         <${IcPlanilha} size=${14} /> Substituir diretório
-      </button>
+      </button>`}
     </div>
     ${visiveis.length === 0 && html`<${Empty} msg="Nenhuma família encontrada." />`}
     ${visiveis.map(f => {
@@ -304,8 +305,9 @@ export function Diretorio({ perfil, show }) {
               ${selo && html`<${Chip} bg=${selo.bg} t=${selo.t} style=${{ fontSize: 10 }}>${selo.l}<//>`}
             </div>`;
           })}
+          ${!readOnly && html`
           <button class="btn btn-s" style=${{ width: '100%', marginTop: 12, fontSize: 12 }}
-            onClick=${() => setEdit({ fam: f, membros: ms })}><${IcEditar} size=${14} /> Editar família</button>
+            onClick=${() => setEdit({ fam: f, membros: ms })}><${IcEditar} size=${14} /> Editar família</button>`}
         </div>`}
       </div>`;
     })}

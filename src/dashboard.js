@@ -1,4 +1,4 @@
-import { html, useState, useEffect, useMemo, useRef, sb, toISO, fromISO, fmtBR, Spinner, Empty, Modal, Chip, InfoTip, exportarExcel, exportarPDF, tabelaHTML, sincronizarAlertas, SITUACAO_MEMBRO } from './core.js';
+import { html, useState, useEffect, useMemo, useRef, sb, toISO, fromISO, fmtBR, Spinner, Empty, Modal, Chip, InfoTip, exportarExcel, exportarPDF, tabelaHTML, sincronizarAlertas, sincronizarAlertasRegistro, SITUACAO_MEMBRO } from './core.js';
 import { IcLupa, IcBaixar, IcImprimir } from './icons.js';
 
 const AZUL = '#16436B', DOURADO = '#9A7B3F';
@@ -63,6 +63,76 @@ function Bars({ itens }) {
     </div>`);
 }
 
+// ─── Indicador numérico de frequência (semana/mês/semestre/ano) ─────────
+const ROTULOS_INDICADOR = {
+  semana:   { l: 'Presentes na última semana', unico: true },
+  mes:      { l: 'Média mensal de presentes', unico: false },
+  semestre: { l: 'Média semestral de presentes', unico: false },
+  ano:      { l: 'Média anual de presentes', unico: false },
+};
+
+function IndicadorFrequencia({ comDados }) {
+  const [modo, setModo] = useState('semana');
+
+  const dados = useMemo(() => {
+    if (comDados.length === 0) return null;
+    let buckets;
+    if (modo === 'semana') {
+      buckets = comDados.map(r => ({ l: fmtBR(r.data).slice(0, 5), full: `Domingo ${fmtBR(r.data)}`, v: r.pres.filter(p => p.presente).length }));
+    } else {
+      const key = modo === 'mes' ? d => d.slice(0, 7)
+        : modo === 'semestre' ? d => `${d.slice(0, 4)}-S${d.slice(5, 7) <= '06' ? 1 : 2}`
+        : d => d.slice(0, 4);
+      const map = new Map();
+      comDados.forEach(r => { const k = key(r.data); if (!map.has(k)) map.set(k, []); map.get(k).push(r); });
+      buckets = [...map.entries()].sort((a, b) => a[0] < b[0] ? -1 : 1).map(([k, rs]) => ({
+        l: k, full: k, v: Math.round(rs.reduce((s, r) => s + r.pres.filter(p => p.presente).length, 0) / rs.length),
+      }));
+    }
+    const serie = buckets.slice(-8);
+    const atual = serie[serie.length - 1];
+    const anterior = serie[serie.length - 2];
+    const delta = anterior && anterior.v > 0 ? (atual.v - anterior.v) / anterior.v : null;
+    return { serie, atual, delta };
+  }, [comDados, modo]);
+
+  if (!dados) return null;
+  const max = Math.max(1, ...dados.serie.map(b => b.v));
+
+  return html`
+    <div class="card" style=${{ padding: 14 }}>
+      <div style=${{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 8, flexWrap: 'wrap' }}>
+        <div class="titulo-secao">Indicador de frequência
+          <${InfoTip} texto="Contagem simples de presentes (não percentual). Semana mostra o último domingo registrado; mês, semestre e ano mostram a média de presentes por domingo no período. O gráfico compara os últimos períodos, com a variação percentual em relação ao anterior." /></div>
+        <div class="seg" style=${{ width: 280 }}>
+          ${[['semana', 'Semana'], ['mes', 'Mês'], ['semestre', 'Semestre'], ['ano', 'Ano']].map(([k, l]) => html`
+            <button key=${k} class=${modo === k ? 'on' : ''} onClick=${() => setModo(k)}>${l}</button>`)}
+        </div>
+      </div>
+      <div style=${{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+        <div class="serif" style=${{ fontSize: 34, fontWeight: 700, color: 'var(--tinta)' }}>${dados.atual.v}</div>
+        <div style=${{ fontSize: 12, color: 'var(--tinta2)' }}>${ROTULOS_INDICADOR[modo].l}</div>
+      </div>
+      ${dados.delta != null && html`
+        <div style=${{ fontSize: 12, fontWeight: 600, color: dados.delta >= 0 ? 'var(--verde)' : 'var(--vermelho)', marginTop: 2 }}>
+          ${dados.delta >= 0 ? '▲' : '▼'} ${Math.abs(Math.round(dados.delta * 100))}% em relação ao período anterior
+        </div>`}
+      <div style=${{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 90, marginTop: 14 }}>
+        ${dados.serie.map((b, i) => {
+          const prev = dados.serie[i - 1];
+          const d = prev && prev.v > 0 ? (b.v - prev.v) / prev.v : null;
+          return html`
+          <div key=${i} style=${{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }} title=${b.full}>
+            <span style=${{ fontSize: 10, color: 'var(--tinta3)' }}>${b.v}</span>
+            <div style=${{ width: '100%', maxWidth: 26, height: `${Math.max(4, b.v / max * 64)}px`, background: AZUL, borderRadius: '3px 3px 0 0' }}></div>
+            <span style=${{ fontSize: 9.5, color: 'var(--tinta3)', textAlign: 'center' }}>${b.l}</span>
+            ${d != null && html`<span style=${{ fontSize: 9, fontWeight: 700, color: d >= 0 ? 'var(--verde)' : 'var(--vermelho)' }}>${d >= 0 ? '+' : ''}${Math.round(d * 100)}%</span>`}
+          </div>`;
+        })}
+      </div>
+    </div>`;
+}
+
 // ─── Relatório demonstrativo da frequência alternada ─────────────────────
 function RelatorioAlternancia({ perfil, alternantes, onClose }) {
   const CAB = ['Membro', 'Presenças', 'Domingos considerados', 'Faltas (dia — justificativa)'];
@@ -111,14 +181,15 @@ export function Dashboard({ perfil }) {
 
   useEffect(() => {
     (async () => {
-      await sincronizarAlertas(perfil.ala_id);
-      const [{ data: reunioes }, { data: presencas }, { data: membros }, { count: alertas }] = await Promise.all([
+      await Promise.all([sincronizarAlertas(perfil.ala_id), sincronizarAlertasRegistro(perfil.ala_id)]);
+      const [{ data: reunioes }, { data: presencas }, { data: membros }, { count: alertas }, { count: alertasRegistro }] = await Promise.all([
         sb.from('reunioes').select('id, data, visitantes').eq('ala_id', perfil.ala_id).eq('tipo', 'sacramental').order('data'),
         sb.from('presencas').select('reuniao_id, membro_id, presente, origem, motivo_falta_id, motivos_falta(nome, excluir_da_metrica)').eq('ala_id', perfil.ala_id).limit(30000),
         sb.from('membros').select('id, nome, is_membro, situacao').eq('ala_id', perfil.ala_id).eq('ativo', true),
         sb.from('alertas').select('id', { count: 'exact', head: true }).eq('ala_id', perfil.ala_id).eq('status', 'aberto'),
+        sb.from('alertas_registro').select('id', { count: 'exact', head: true }).eq('ala_id', perfil.ala_id).eq('status', 'aberto'),
       ]);
-      setDados({ reunioes: reunioes || [], presencas: presencas || [], membros: membros || [], alertas: alertas || 0 });
+      setDados({ reunioes: reunioes || [], presencas: presencas || [], membros: membros || [], alertas: alertas || 0, alertasRegistro: alertasRegistro || 0 });
     })();
   }, [perfil.ala_id]);
 
@@ -207,7 +278,7 @@ export function Dashboard({ perfil }) {
     const presPenultima = penultima ? penultima.pres.filter(p => p.presente).length : null;
 
     return {
-      pontos, alternantes, justItens, topVirtList, cresVirt, v4,
+      pontos, alternantes, justItens, topVirtList, cresVirt, v4, comDados,
       presUltima, presPenultima, dataUltima: ultima?.data,
       visitantesUltima: ultima?.visitantes || 0,
       baseMembros, temDados: comDados.length > 0,
@@ -245,7 +316,14 @@ export function Dashboard({ perfil }) {
           <div class="l">Alertas de ausência abertos
             <${InfoTip} texto="Membros ativos que faltaram dois domingos seguidos. Veja e dispense os alertas na aba Frequência." /></div>
         </div>
+        <div class="kpi">
+          <div class="v" style=${{ color: dados.alertasRegistro ? 'var(--ambar)' : 'var(--verde)' }}>${dados.alertasRegistro}</div>
+          <div class="l">Registros sistêmicos pendentes
+            <${InfoTip} texto="Apoios e desobrigações lançados na agenda que ainda precisam ser repassados ao registro sistêmico oficial da Igreja. Aparece a partir de domingo ao meio-dia." /></div>
+        </div>
       </div>
+
+      <${IndicadorFrequencia} comDados=${calc.comDados} />
 
       <div class="card" style=${{ padding: 14 }}>
         <div style=${{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 8, flexWrap: 'wrap' }}>

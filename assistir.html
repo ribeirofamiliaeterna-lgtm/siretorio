@@ -15,12 +15,11 @@
     *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
     body{font-family:var(--sans);background:var(--papel);color:var(--tinta);min-height:100vh;display:flex;flex-direction:column;align-items:center}
     .topo{width:100%;display:flex;flex-direction:column;align-items:center;padding:34px 20px 0;text-align:center}
-    .arco{position:relative;width:min(340px,86vw);border-radius:170px 170px 14px 14px;overflow:hidden;
-      background:linear-gradient(168deg,#1C5380 0%,#16436B 46%,#0E2E4C 100%);
-      padding:44px 26px 30px;color:#FFF;box-shadow:0 18px 44px rgba(14,46,76,.28)}
-    .arco svg{display:block;margin:0 auto 4px}
-    .igreja{font-family:var(--serif);font-size:11px;letter-spacing:2.6px;text-transform:uppercase;color:var(--dourado);line-height:1.7;margin-top:14px}
-    .evento{font-family:var(--serif);font-size:26px;font-weight:700;letter-spacing:.4px;margin-top:10px}
+    .faixa{position:relative;width:min(340px,86vw);border-radius:16px;overflow:hidden;
+      background:linear-gradient(160deg,#1C5380 0%,#16436B 46%,#0E2E4C 100%);
+      padding:30px 26px;color:#FFF;box-shadow:0 18px 44px rgba(14,46,76,.28)}
+    .marca{font-family:var(--serif);font-size:14px;letter-spacing:1.2px;color:var(--dourado);margin-bottom:10px}
+    .evento{font-family:var(--serif);font-size:26px;font-weight:700;letter-spacing:.4px;margin-top:2px}
     .ala{font-size:13px;color:#B9C8D6;margin-top:5px}
     .verso{font-family:var(--serif);font-style:italic;font-size:15.5px;color:var(--tinta2);text-align:center;line-height:1.65;max-width:340px;margin:26px 20px 4px}
     .ref{font-size:11px;font-style:normal;color:var(--tinta3);margin-top:5px;letter-spacing:.4px}
@@ -28,6 +27,7 @@
     .inp{width:100%;padding:11px 12px;border-radius:9px;border:1px solid var(--linha);font-size:14px;color:var(--tinta);outline:none;font-family:inherit;background:#FFF}
     .inp:focus{border-color:var(--azul)}
     .btn{width:100%;padding:13px;border-radius:9px;font-size:14.5px;font-weight:600;border:none;cursor:pointer;font-family:inherit;letter-spacing:.2px}
+    .rodape-aviso{text-align:center;font-size:10.5px;color:var(--tinta3);line-height:1.6;max-width:400px;padding:0 24px 24px}
   </style>
 </head>
 <body>
@@ -44,23 +44,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY } from './src/config.js';
 const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const slug = new URLSearchParams(location.search).get('ala');
 
-// Vitral em arco: raios de luz sobre a mesa do sacramento (desenho próprio)
-const Vitral = () => html`
-  <svg width="120" height="96" viewBox="0 0 120 96" fill="none" aria-hidden="true">
-    <g opacity=".9">
-      <path d="M60 6 L60 34" stroke="#C9B37E" stroke-width="1.4" stroke-linecap="round"/>
-      <path d="M38 12 L48 36" stroke="#C9B37E" stroke-width="1.1" stroke-linecap="round" opacity=".7"/>
-      <path d="M82 12 L72 36" stroke="#C9B37E" stroke-width="1.1" stroke-linecap="round" opacity=".7"/>
-      <path d="M20 24 L38 42" stroke="#C9B37E" stroke-width=".9" stroke-linecap="round" opacity=".45"/>
-      <path d="M100 24 L82 42" stroke="#C9B37E" stroke-width=".9" stroke-linecap="round" opacity=".45"/>
-    </g>
-    <ellipse cx="60" cy="78" rx="44" ry="5" fill="#FFFFFF" opacity=".16"/>
-    <path d="M18 78 h84" stroke="#E9DEC2" stroke-width="1.6" stroke-linecap="round"/>
-    <path d="M24 78 v9 M96 78 v9" stroke="#E9DEC2" stroke-width="1.4" stroke-linecap="round" opacity=".8"/>
-    <path d="M52 66 h16 M54 66 v-6 a6 6 0 0 1 12 0 v6" stroke="#E9DEC2" stroke-width="1.5" stroke-linecap="round" fill="none"/>
-    <path d="M40 72 a5 3.4 0 0 0 10 0z" stroke="#E9DEC2" stroke-width="1.4" fill="none"/>
-    <path d="M70 72 a5 3.4 0 0 0 10 0z" stroke="#E9DEC2" stroke-width="1.4" fill="none"/>
-  </svg>`;
+const AVISO_NAO_OFICIAL = 'Este sistema não é um aplicativo oficial de A Igreja de Jesus Cristo dos Santos dos Últimos Dias. É uma ferramenta independente, mantida pela liderança local, desenvolvida para seguir estritamente as normas e diretrizes estabelecidas pela Igreja.';
 
 function App() {
   const [ala, setAla] = useState(undefined);
@@ -103,9 +87,8 @@ function App() {
 
   return html`
   <div class="topo">
-    <div class="arco">
-      <${Vitral} />
-      <div class="igreja">A Igreja de Jesus Cristo<br/>dos Santos dos Últimos Dias</div>
+    <div class="faixa">
+      <div class="marca">Painel de Gestão</div>
       <div class="evento">Reunião Sacramental</div>
       <div class="ala">${ala.nome}</div>
     </div>
@@ -152,7 +135,8 @@ function App() {
           ${fase === 'enviando' ? 'Registrando…' : 'Assistir à transmissão'}
         </button>
       </form>`}
-  </div>`;
+  </div>
+  <div class="rodape-aviso">${AVISO_NAO_OFICIAL}</div>`;
 }
 render(html`<${App}/>`, document.getElementById('app'));
 </script>

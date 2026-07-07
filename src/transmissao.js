@@ -1,12 +1,31 @@
 import { html, useState, useEffect, useMemo, sb, norm, toISO, fmtBR, nextSunday, lastSunday, listSundays, Spinner, Empty } from './core.js';
-import { IcLink, IcCheck, IcMais } from './icons.js';
+import { IcLink, IcCheck, IcMais, IcEditar, IcPessoas } from './icons.js';
 
 const datasDisponiveis = () => {
   const prox = toISO(nextSunday());
   return [...new Set([prox, ...listSundays(10)])].sort().reverse();
 };
 
-export function Transmissao({ perfil, show }) {
+// ─── Busca simples de membro para reatribuir um vínculo ──────────────────
+function BuscaMembro({ membros, onPick }) {
+  const [q, setQ] = useState('');
+  const resultados = useMemo(() => {
+    if (norm(q).length < 2) return [];
+    const n = norm(q);
+    return membros.filter(m => norm(m.nome).includes(n)).slice(0, 8);
+  }, [q, membros]);
+  return html`
+    <div>
+      <input class="inp" style=${{ fontSize: 12.5 }} placeholder="Buscar membro do diretório…" value=${q} onInput=${e => setQ(e.target.value)} />
+      ${resultados.map(m => html`
+        <div key=${m.id} onClick=${() => onPick(m.id)}
+          style=${{ padding: '8px 10px', fontSize: 12.5, color: 'var(--tinta)', cursor: 'pointer', borderBottom: '1px solid var(--linha2)' }}>
+          ${m.nome}
+        </div>`)}
+    </div>`;
+}
+
+export function Transmissao({ perfil, show, readOnly }) {
   const [data, setData] = useState(toISO(nextSunday()));
   const [trans, setTrans] = useState(null);       // linha da transmissão da data
   const [url, setUrl] = useState('');
@@ -14,6 +33,7 @@ export function Transmissao({ perfil, show }) {
   const [membros, setMembros] = useState([]);
   const [carregado, setCarregado] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [editando, setEditando] = useState(null);   // id do participante em edição
 
   const linkPublico = `${location.origin}${location.pathname.replace(/index\.html$/, '').replace(/\/$/, '')}/assistir.html?ala=${perfil.alas?.slug}`;
 
@@ -62,16 +82,22 @@ export function Transmissao({ perfil, show }) {
     return r.id;
   };
 
+  const removerPresencaAnterior = async (rid, membroId) => {
+    if (!membroId) return;
+    await sb.from('presencas').delete().eq('reuniao_id', rid).eq('membro_id', membroId).eq('origem', 'transmissao');
+  };
+
   const confirmar = async (p, membroId) => {
     setBusy(true);
     try {
       const rid = await garantirReuniao();
+      await removerPresencaAnterior(rid, p.membro_id && p.membro_id !== membroId ? p.membro_id : null);
       const { error: e1 } = await sb.from('presencas').upsert(
         { ala_id: perfil.ala_id, reuniao_id: rid, membro_id: membroId, presente: true, origem: 'transmissao' },
         { onConflict: 'reuniao_id,membro_id' });
       if (e1) throw new Error(e1.message);
       await sb.from('transmissao_participantes').update({ membro_id: membroId, processado: true }).eq('id', p.id);
-      show('Presença registrada via transmissão.'); carregar();
+      show('Presença registrada via transmissão.'); setEditando(null); carregar();
     } catch (e) { show(e.message, false); }
     setBusy(false);
   };
@@ -94,6 +120,22 @@ export function Transmissao({ perfil, show }) {
     } catch (e) { show(e.message, false); setBusy(false); }
   };
 
+  // Converte o registro em apenas uma contagem de visitante, sem vínculo com
+  // uma pessoa específica do diretório.
+  const contarComoVisitante = async p => {
+    setBusy(true);
+    try {
+      const rid = await garantirReuniao();
+      await removerPresencaAnterior(rid, p.membro_id);
+      const { error } = await sb.from('reuniao_visitantes')
+        .insert({ reuniao_id: rid, ala_id: perfil.ala_id, nome: p.nome_informado });
+      if (error) throw new Error(error.message);
+      await sb.from('transmissao_participantes').update({ membro_id: null, processado: true }).eq('id', p.id);
+      show('Registrado como visitante, sem vínculo com o diretório.'); setEditando(null); carregar();
+    } catch (e) { show(e.message, false); }
+    setBusy(false);
+  };
+
   const descartar = async p => {
     await sb.from('transmissao_participantes').update({ processado: true }).eq('id', p.id);
     carregar();
@@ -112,10 +154,11 @@ export function Transmissao({ perfil, show }) {
     </select>
     <div class="card" style=${{ padding: 14 }}>
       <label class="lbl" style=${{ marginTop: 0 }}>Link da live no YouTube</label>
-      <input class="inp" placeholder="https://youtube.com/live/…" value=${url} onInput=${e => setUrl(e.target.value)} />
+      <input class="inp" placeholder="https://youtube.com/live/…" value=${url} disabled=${readOnly} onInput=${e => setUrl(e.target.value)} />
+      ${!readOnly && html`
       <button class="btn btn-p" style=${{ width: '100%', marginTop: 10, opacity: busy ? .6 : 1 }} disabled=${busy} onClick=${salvarLink}>
         Salvar link deste domingo
-      </button>
+      </button>`}
       <div style=${{ marginTop: 14, padding: 12, background: 'var(--verde-claro)', borderRadius: 10, border: '1px solid #CDE2D6' }}>
         <div style=${{ fontSize: 11, fontWeight: 700, color: 'var(--verde)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 5 }}><${IcLink} size=${13} /> Link público para enviar aos membros (não muda de semana):</div>
         <div style=${{ fontSize: 12, color: 'var(--tinta)', wordBreak: 'break-all' }}>${linkPublico}</div>
@@ -135,25 +178,43 @@ export function Transmissao({ perfil, show }) {
         return html`
         <div key=${p.id} class="card" style=${{ padding: '11px 14px' }}>
           <div style=${{ fontWeight: 600, fontSize: 13 }}>${p.nome_informado}</div>
-          ${sug ? html`
-            <div style=${{ fontSize: 11, color: 'var(--verde)', margin: '3px 0 8px' }}>Diretório: <strong>${sug.nome}</strong></div>
+          ${sug
+            ? html`<div style=${{ fontSize: 11, color: 'var(--verde)', margin: '3px 0 8px' }}>Diretório: <strong>${sug.nome}</strong></div>`
+            : html`<div style=${{ fontSize: 11, color: 'var(--ambar)', margin: '3px 0 8px' }}>Não encontrado no diretório.</div>`}
+          ${!readOnly && (sug ? html`
             <div style=${{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               <button class="btn btn-g" style=${{ fontSize: 12, flex: 1 }} disabled=${busy} onClick=${() => confirmar(p, sug.id)}><${IcCheck} size=${13} /> Confirmar presença</button>
               <button class="btn btn-s" style=${{ fontSize: 12 }} disabled=${busy} onClick=${() => cadastrarNaoMembro(p)}>Não é essa pessoa</button>
               <button class="btn btn-s" style=${{ fontSize: 12 }} onClick=${() => descartar(p)}>Ignorar</button>
             </div>` : html`
-            <div style=${{ fontSize: 11, color: 'var(--ambar)', margin: '3px 0 8px' }}>Não encontrado no diretório.</div>
             <div style=${{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               <button class="btn btn-g" style=${{ fontSize: 12, flex: 1 }} disabled=${busy} onClick=${() => cadastrarNaoMembro(p)}><${IcMais} size=${13} /> Cadastrar como não-membro e registrar presença</button>
+              <button class="btn btn-s" style=${{ fontSize: 12 }} onClick=${() => contarComoVisitante(p)}><${IcPessoas} size=${13} /> Contar como visitante</button>
               <button class="btn btn-s" style=${{ fontSize: 12 }} onClick=${() => descartar(p)}>Ignorar</button>
-            </div>`}
+            </div>`)}
         </div>`;
       })}
       ${processados.length > 0 && html`
         <div style=${{ fontSize: 12, fontWeight: 700, color: 'var(--tinta3)', margin: '10px 0 6px' }}>Processados</div>
         ${processados.map(p => html`
-          <div key=${p.id} style=${{ fontSize: 12, color: 'var(--tinta3)', padding: '6px 2px', borderBottom: '1px solid var(--linha2)' }}>
-            ${p.membro_id ? '✓' : '—'} ${p.nome_informado}
-            ${p.membro_id && membroById.get(p.membro_id) ? ` → ${membroById.get(p.membro_id).nome}` : ''}
+          <div key=${p.id} class="card" style=${{ padding: '9px 12px' }}>
+            <div style=${{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+              <div style=${{ fontSize: 12.5, color: 'var(--tinta2)' }}>
+                ${p.membro_id ? '✓' : '—'} ${p.nome_informado}
+                ${p.membro_id && membroById.get(p.membro_id) ? ` → ${membroById.get(p.membro_id).nome}` : ''}
+              </div>
+              ${!readOnly && html`
+              <button class="btn btn-s" style=${{ fontSize: 11, padding: '4px 8px' }} onClick=${() => setEditando(editando === p.id ? null : p.id)}>
+                <${IcEditar} size=${12} /> Editar
+              </button>`}
+            </div>
+            ${editando === p.id && html`
+              <div style=${{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--linha2)' }}>
+                <label class="lbl" style=${{ marginTop: 0 }}>Vincular a outro membro do diretório</label>
+                <${BuscaMembro} membros=${membros} onPick=${mid => confirmar(p, mid)} />
+                <button class="btn btn-s" style=${{ width: '100%', fontSize: 12, marginTop: 8 }} disabled=${busy} onClick=${() => contarComoVisitante(p)}>
+                  <${IcPessoas} size=${13} /> Contar apenas como visitante (sem vínculo)
+                </button>
+              </div>`}
           </div>`)}`}`}`;
 }

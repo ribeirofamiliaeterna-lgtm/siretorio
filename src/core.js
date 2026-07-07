@@ -68,6 +68,14 @@ export const Modal = ({ onClose, children }) => html`
 export const Empty = ({ msg }) => html`
   <div style=${{ textAlign: 'center', padding: '36px 20px', color: 'var(--tinta3)', fontSize: 13 }}>${msg}</div>`;
 
+// ─── Aviso institucional ─────────────────────────────────────────────────
+export const AVISO_NAO_OFICIAL = 'Este sistema não é um aplicativo oficial de A Igreja de Jesus Cristo dos Santos dos Últimos Dias. É uma ferramenta independente, mantida pela liderança local, desenvolvida para seguir estritamente as normas e diretrizes estabelecidas pela Igreja.';
+
+export const Rodape = () => html`
+  <div style=${{ textAlign: 'center', fontSize: 10.5, color: 'var(--tinta3)', lineHeight: 1.6, padding: '18px 24px 14px', maxWidth: 480, margin: '0 auto' }}>
+    ${AVISO_NAO_OFICIAL}
+  </div>`;
+
 // Selo "i" com explicação do cálculo (hover no computador, toque no celular)
 export function InfoTip({ texto }) {
   const [aberto, setAberto] = useState(false);
@@ -128,6 +136,34 @@ export async function sincronizarAlertas(alaId) {
     .upsert(novos, { onConflict: 'ala_id,membro_id,tipo,referencia', ignoreDuplicates: true });
 }
 
+// ─── Alertas de registro sistêmico (apoios e desobrigações) ──────────────
+// Regra: quando um Apoio ou uma Desobrigação é lançado na agenda, gera-se um
+// alerta lembrando de repassar ao registro sistêmico oficial da Igreja — mas
+// só a partir de domingo ao meio-dia (dá tempo de o lançamento ser feito
+// antes do aviso aparecer).
+const HORA_LIMITE_REGISTRO = 12;
+export async function sincronizarAlertasRegistro(alaId) {
+  const { data: itens } = await sb.from('agenda_itens')
+    .select('id, rotulo, conteudo, agendas!inner(data)')
+    .eq('ala_id', alaId).in('rotulo', ['Apoios', 'Desobrigações']);
+  if (!itens || itens.length === 0) return;
+
+  const agora = new Date();
+  const prontos = itens.filter(i => {
+    if (!i.conteudo?.trim()) return false;
+    const limite = fromISO(i.agendas.data); limite.setHours(HORA_LIMITE_REGISTRO, 0, 0, 0);
+    return agora >= limite;
+  });
+  if (prontos.length === 0) return;
+
+  await sb.from('alertas_registro').upsert(
+    prontos.map(i => ({
+      ala_id: alaId, agenda_item_id: i.id, tipo: 'apoio_desobrigacao',
+      descricao: `${i.rotulo}: ${i.conteudo.trim()}`, data: i.agendas.data,
+    })),
+    { onConflict: 'agenda_item_id' });
+}
+
 // ─── Exportações (Excel via SheetJS oficial; PDF via impressão) ──────────
 export const carregarXLSX = async () => {
   const m = await import('https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs');
@@ -158,7 +194,7 @@ export function exportarPDF(titulo, subtitulo, html_) {
     @page{margin:18mm}
   </style></head><body>
   <h1>${titulo}</h1><div class="sub">${subtitulo}</div>${html_}
-  <div class="rodape">Gerado pelo Siretório em ${new Date().toLocaleDateString('pt-BR')} — uso interno da ala.</div>
+  <div class="rodape">Gerado pelo Painel de Gestão em ${new Date().toLocaleDateString('pt-BR')} — uso interno da ala.</div>
   <script>window.onload=()=>setTimeout(()=>window.print(),300)</` + `script></body></html>`);
   w.document.close();
 }

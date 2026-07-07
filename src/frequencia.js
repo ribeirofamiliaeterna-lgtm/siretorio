@@ -1,4 +1,4 @@
-import { html, useState, useEffect, useMemo, sb, norm, toISO, fromISO, fmtBR, lastSunday, nextSunday, listSundays, Spinner, Empty, Chip, InfoTip, sincronizarAlertas, SITUACAO_MEMBRO } from './core.js';
+import { html, useState, useEffect, useMemo, sb, norm, toISO, fromISO, fmtBR, lastSunday, nextSunday, listSundays, Spinner, Empty, Chip, InfoTip, sincronizarAlertas, sincronizarAlertasRegistro, SITUACAO_MEMBRO } from './core.js';
 import { IcCheck, IcFechar, IcMais, IcSino, IcSaude, IcPessoas, IcEditar } from './icons.js';
 import { RelatoriosFrequencia } from './frequencia-relatorios.js';
 
@@ -7,7 +7,7 @@ const domingos = () => [toISO(nextSunday(new Date(Date.now() + 864e5))), ...list
   .filter((v, i, a) => a.indexOf(v) === i).sort().reverse();
 
 // ─── Card de registro por família ────────────────────────────────────────
-function CardRegistro({ f, ms, marcas, setMarca, motivos, onSalvar, salvando }) {
+function CardRegistro({ f, ms, marcas, setMarca, motivos, onSalvar, salvando, readOnly }) {
   const [open, setOpen] = useState(false);
   const regs = ms.filter(m => marcas[m.id]?.p !== undefined);
   const presentes = ms.filter(m => marcas[m.id]?.p === true).length;
@@ -41,20 +41,20 @@ function CardRegistro({ f, ms, marcas, setMarca, motivos, onSalvar, salvando }) 
             </span>
             <div style=${{ display: 'flex', gap: 4, flexShrink: 0 }}>
               <button class="chip" style=${{ background: v.p === true ? 'var(--verde)' : 'var(--linha2)', color: v.p === true ? '#FFF' : 'var(--tinta3)', padding: '5px 12px', fontSize: 12 }}
-                onClick=${() => setMarca(m.id, { p: v.p === true ? undefined : true, motivo: null })}>Presente</button>
+                disabled=${readOnly} onClick=${() => setMarca(m.id, { p: v.p === true ? undefined : true, motivo: null })}>Presente</button>
               <button class="chip" style=${{ background: v.p === false ? 'var(--vermelho)' : 'var(--linha2)', color: v.p === false ? '#FFF' : 'var(--tinta3)', padding: '5px 12px', fontSize: 12 }}
-                onClick=${() => setMarca(m.id, { p: v.p === false ? undefined : false, motivo: v.motivo || null })}>Faltou</button>
+                disabled=${readOnly} onClick=${() => setMarca(m.id, { p: v.p === false ? undefined : false, motivo: v.motivo || null })}>Faltou</button>
             </div>
           </div>
           ${v.p === false && html`
-            <select class="inp" style=${{ marginTop: 6, padding: '7px 10px', fontSize: 12 }}
+            <select class="inp" style=${{ marginTop: 6, padding: '7px 10px', fontSize: 12 }} disabled=${readOnly}
               value=${v.motivo || ''} onChange=${e => setMarca(m.id, { p: false, motivo: e.target.value || null })}>
               <option value="">Justificativa da falta…</option>
               ${motivos.map(mo => html`<option value=${mo.id} selected=${mo.id === v.motivo}>${mo.nome}</option>`)}
             </select>`}
         </div>`;
       })}
-      ${ms.length > 0 && html`
+      ${ms.length > 0 && !readOnly && html`
       <div style=${{ fontSize: 11, color: 'var(--tinta3)', margin: '8px 0 6px' }}>
         Quem não for marcado será registrado como falta.
       </div>
@@ -65,7 +65,7 @@ function CardRegistro({ f, ms, marcas, setMarca, motivos, onSalvar, salvando }) 
 }
 
 // ─── Visitantes do domingo ────────────────────────────────────────────────
-function Visitantes({ perfil, data, show, garantirReuniao, reuniao, aoMudar }) {
+function Visitantes({ perfil, data, show, garantirReuniao, reuniao, aoMudar, readOnly }) {
   const [nomeados, setNomeados] = useState([]);
   const [qtd, setQtd] = useState('');
   const [novoNome, setNovoNome] = useState('');
@@ -152,9 +152,10 @@ function Visitantes({ perfil, data, show, garantirReuniao, reuniao, aoMudar }) {
     <div style=${{ borderTop: '1px solid var(--linha2)', padding: '12px 14px', background: 'var(--papel)' }}>
       <label class="lbl" style=${{ marginTop: 0 }}>Visitantes sem registro de nome</label>
       <div style=${{ display: 'flex', gap: 6 }}>
-        <input class="inp" type="number" min="0" style=${{ width: 110 }} value=${qtd} onInput=${e => setQtd(e.target.value)} />
-        <button class="btn btn-s" style=${{ fontSize: 12 }} disabled=${busy} onClick=${salvarQtd}>Salvar número</button>
+        <input class="inp" type="number" min="0" style=${{ width: 110 }} value=${qtd} disabled=${readOnly} onInput=${e => setQtd(e.target.value)} />
+        <button class="btn btn-s" style=${{ fontSize: 12 }} disabled=${busy || readOnly} onClick=${salvarQtd}>Salvar número</button>
       </div>
+      ${!readOnly && html`
       <label class="lbl">Visitante com nome (opcional)</label>
       <input class="inp" placeholder="Nome do visitante" value=${novoNome} onInput=${e => setNovoNome(e.target.value)} />
       <label style=${{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: 'var(--tinta2)', margin: '8px 0' }}>
@@ -164,13 +165,13 @@ function Visitantes({ perfil, data, show, garantirReuniao, reuniao, aoMudar }) {
       </label>
       <button class="btn btn-p" style=${{ width: '100%', fontSize: 12.5, opacity: busy ? .6 : 1 }} disabled=${busy} onClick=${adicionar}>
         <${IcMais} size=${14} /> Adicionar visitante
-      </button>
+      </button>`}
       ${nomeados.length > 0 && html`
         <div style=${{ marginTop: 10 }}>
           ${nomeados.map(v => html`
             <div key=${v.id} style=${{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12.5, color: 'var(--tinta2)', padding: '4px 0', borderBottom: '1px solid var(--linha2)' }}>
               <span>${v.nome}</span>
-              <button style=${{ color: 'var(--vermelho)', padding: 2 }} onClick=${() => remover(v)}><${IcFechar} size=${13} /></button>
+              ${!readOnly && html`<button style=${{ color: 'var(--vermelho)', padding: 2 }} onClick=${() => remover(v)}><${IcFechar} size=${13} /></button>`}
             </div>`)}
         </div>`}
     </div>`}
@@ -178,7 +179,7 @@ function Visitantes({ perfil, data, show, garantirReuniao, reuniao, aoMudar }) {
 }
 
 // ─── Gestão de justificativas ────────────────────────────────────────────
-function Justificativas({ perfil, motivos, show, recarregar }) {
+function Justificativas({ perfil, motivos, show, recarregar, readOnly }) {
   const [novo, setNovo] = useState('');
   const alterar = async (m, patch) => {
     const { error } = await sb.from('motivos_falta').update(patch).eq('id', m.id);
@@ -208,32 +209,33 @@ function Justificativas({ perfil, motivos, show, recarregar }) {
         <div key=${m.id} style=${{ padding: '9px 0', borderBottom: '1px solid var(--linha2)' }}>
           <div style=${{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
             <span style=${{ fontSize: 13.5, fontWeight: 600 }}>${m.nome}</span>
-            ${!m.padrao && html`<button style=${{ color: 'var(--vermelho)', padding: 2 }} onClick=${() => excluir(m)}><${IcFechar} size=${13} /></button>`}
+            ${!m.padrao && !readOnly && html`<button style=${{ color: 'var(--vermelho)', padding: 2 }} onClick=${() => excluir(m)}><${IcFechar} size=${13} /></button>`}
           </div>
           <div style=${{ display: 'flex', gap: 14, marginTop: 5, flexWrap: 'wrap' }}>
             <label style=${{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--tinta2)' }}>
-              <input type="checkbox" checked=${m.excluir_da_metrica} onChange=${e => alterar(m, { excluir_da_metrica: e.target.checked })} />
+              <input type="checkbox" checked=${m.excluir_da_metrica} disabled=${readOnly} onChange=${e => alterar(m, { excluir_da_metrica: e.target.checked })} />
               Não conta na frequência alternada
               <${InfoTip} texto="Faltas com esta justificativa são desconsideradas no indicador de frequência alternada do Painel. Ex.: membro doente não deve aparecer como frequência irregular." />
             </label>
             <label style=${{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--tinta2)' }}>
-              <input type="checkbox" checked=${m.alerta_lideranca} onChange=${e => alterar(m, { alerta_lideranca: e.target.checked })} />
+              <input type="checkbox" checked=${m.alerta_lideranca} disabled=${readOnly} onChange=${e => alterar(m, { alerta_lideranca: e.target.checked })} />
               Repassar à liderança
             </label>
           </div>
         </div>`)}
+      ${!readOnly && html`
       <div style=${{ display: 'flex', gap: 6, marginTop: 12 }}>
         <input class="inp" placeholder="Nova justificativa — ex: Trabalho" value=${novo}
           onInput=${e => setNovo(e.target.value)} onKeyDown=${e => { if (e.key === 'Enter') criar(); }} />
         <button class="btn btn-p" style=${{ whiteSpace: 'nowrap', fontSize: 12.5 }} onClick=${criar}>
           <${IcMais} size=${14} /> Criar
         </button>
-      </div>
+      </div>`}
     </div>`;
 }
 
 // ─── Módulo principal ────────────────────────────────────────────────────
-export function Frequencia({ perfil, show }) {
+export function Frequencia({ perfil, show, readOnly }) {
   const [aba, setAba] = useState('registrar');
   const [data, setData] = useState(toISO(lastSunday()));
   const [fams, setFams] = useState(null);
@@ -242,6 +244,7 @@ export function Frequencia({ perfil, show }) {
   const [reuniao, setReuniao] = useState(null);
   const [marcas, setMarcas] = useState({});          // membro_id → {p, motivo}
   const [alertas, setAlertas] = useState([]);
+  const [alertasRegistro, setAlertasRegistro] = useState([]);
   const [busca, setBusca] = useState('');
   const [salvando, setSalvando] = useState(false);
 
@@ -265,11 +268,14 @@ export function Frequencia({ perfil, show }) {
   useEffect(() => { carregarDia(); }, [data, perfil.ala_id]);
 
   const carregarAlertas = async () => {
-    await sincronizarAlertas(perfil.ala_id);
-    const { data: a } = await sb.from('alertas')
-      .select('id, referencia, membros(nome, situacao)')
-      .eq('ala_id', perfil.ala_id).eq('status', 'aberto').order('referencia', { ascending: false });
-    setAlertas(a || []);
+    await Promise.all([sincronizarAlertas(perfil.ala_id), sincronizarAlertasRegistro(perfil.ala_id)]);
+    const [{ data: a }, { data: r }] = await Promise.all([
+      sb.from('alertas').select('id, referencia, membros(nome, situacao)')
+        .eq('ala_id', perfil.ala_id).eq('status', 'aberto').order('referencia', { ascending: false }),
+      sb.from('alertas_registro').select('id, descricao, data')
+        .eq('ala_id', perfil.ala_id).eq('status', 'aberto').order('data', { ascending: false }),
+    ]);
+    setAlertas(a || []); setAlertasRegistro(r || []);
   };
   useEffect(() => { carregarAlertas(); }, [perfil.ala_id]);
 
@@ -316,6 +322,12 @@ export function Frequencia({ perfil, show }) {
     setAlertas(x => x.filter(y => y.id !== a.id));
   };
 
+  const dispensarAlertaRegistro = async a => {
+    const { error } = await sb.from('alertas_registro').update({ status: 'dispensado' }).eq('id', a.id);
+    if (error) return show(error.message, false);
+    setAlertasRegistro(x => x.filter(y => y.id !== a.id));
+  };
+
   if (!fams) return html`<${Spinner}/>`;
 
   const q = norm(busca);
@@ -336,7 +348,7 @@ export function Frequencia({ perfil, show }) {
     <div class="seg" style=${{ marginBottom: 12 }}>
       <button class=${aba === 'registrar' ? 'on' : ''} onClick=${() => setAba('registrar')}>Registrar</button>
       <button class=${aba === 'alertas' ? 'on' : ''} onClick=${() => setAba('alertas')}>
-        <${IcSino} size=${13} /> Alertas${alertas.length ? ` (${alertas.length})` : ''}</button>
+        <${IcSino} size=${13} /> Alertas${(alertas.length + alertasRegistro.length) ? ` (${alertas.length + alertasRegistro.length})` : ''}</button>
       <button class=${aba === 'justificativas' ? 'on' : ''} onClick=${() => setAba('justificativas')}>Justificativas</button>
       <button class=${aba === 'relatorios' ? 'on' : ''} onClick=${() => setAba('relatorios')}>Relatórios</button>
     </div>
@@ -349,20 +361,20 @@ export function Frequencia({ perfil, show }) {
         <div class="kpi"><div class="v">${Math.max(0, registraveis.length - registrados)}</div><div class="l">Sem registro</div></div>
       </div>
       <${Visitantes} perfil=${perfil} data=${data} show=${show} reuniao=${reuniao}
-        garantirReuniao=${garantirReuniao} aoMudar=${carregarDia} />
+        garantirReuniao=${garantirReuniao} aoMudar=${carregarDia} readOnly=${readOnly} />
       <input class="inp" type="search" placeholder="Buscar família por nome ou sobrenome…" value=${busca}
         onInput=${e => setBusca(e.target.value)} style=${{ margin: '2px 0 10px' }} />
       ${famVisiveis.map(f => html`<${CardRegistro} key=${f.id} f=${f} ms=${porFamilia.get(f.id) || []}
         marcas=${marcas} motivos=${motivos}
         setMarca=${(id, v) => setMarcas(o => ({ ...o, [id]: v }))}
-        onSalvar=${salvarFamilia} salvando=${salvando} />`)}`}
+        onSalvar=${salvarFamilia} salvando=${salvando} readOnly=${readOnly} />`)}`}
 
     ${aba === 'alertas' && html`
       <div style=${{ fontSize: 12.5, color: 'var(--tinta2)', marginBottom: 10, display: 'flex', gap: 6, alignItems: 'flex-start' }}>
         <span>Membros ativos que faltaram dois domingos seguidos.</span>
         <${InfoTip} texto="Considera-se ativo quem registrou ao menos uma presença nos 3 meses anteriores. Se um membro ativo falta em dois domingos consecutivos, o alerta é criado. Dispensar o alerta não apaga as faltas — apenas o aviso." />
       </div>
-      ${alertas.length === 0 && html`<${Empty} msg="Nenhum alerta pendente." />`}
+      ${alertas.length === 0 && html`<${Empty} msg="Nenhum alerta de ausência pendente." />`}
       ${alertas.map(a => html`
         <div key=${a.id} class="card" style=${{ padding: '12px 14px', borderLeft: '3px solid var(--vermelho)' }}>
           <div style=${{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -375,12 +387,28 @@ export function Frequencia({ perfil, show }) {
                 Faltou nos domingos ${fmtBR(toISO(new Date(fromISO(a.referencia) - 7 * 864e5)))} e ${fmtBR(a.referencia)}
               </div>
             </div>
-            <button class="btn btn-s" style=${{ fontSize: 12 }} onClick=${() => dispensarAlerta(a)}>Dispensar</button>
+            ${!readOnly && html`<button class="btn btn-s" style=${{ fontSize: 12 }} onClick=${() => dispensarAlerta(a)}>Dispensar</button>`}
+          </div>
+        </div>`)}
+
+      <div class="titulo-secao" style=${{ margin: '18px 0 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
+        Registro sistêmico pendente
+        <${InfoTip} texto="Gerado quando um Apoio ou Desobrigação é lançado na agenda da reunião. Aparece a partir de domingo ao meio-dia, como lembrete para repassar ao registro sistêmico oficial da Igreja." />
+      </div>
+      ${alertasRegistro.length === 0 && html`<${Empty} msg="Nenhum registro pendente." />`}
+      ${alertasRegistro.map(a => html`
+        <div key=${a.id} class="card" style=${{ padding: '12px 14px', borderLeft: '3px solid var(--ambar)' }}>
+          <div style=${{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <div>
+              <div style=${{ fontWeight: 600, fontSize: 13.5 }}>${a.descricao}</div>
+              <div style=${{ fontSize: 11.5, color: 'var(--tinta2)', marginTop: 2 }}>Domingo ${fmtBR(a.data)}</div>
+            </div>
+            ${!readOnly && html`<button class="btn btn-s" style=${{ fontSize: 12 }} onClick=${() => dispensarAlertaRegistro(a)}>Repassado</button>`}
           </div>
         </div>`)}`}
 
     ${aba === 'justificativas' && html`
-      <${Justificativas} perfil=${perfil} motivos=${motivos} show=${show} recarregar=${carregarBase} />`}
+      <${Justificativas} perfil=${perfil} motivos=${motivos} show=${show} recarregar=${carregarBase} readOnly=${readOnly} />`}
 
     ${aba === 'relatorios' && html`
       <${RelatoriosFrequencia} perfil=${perfil} membros=${membros} motivos=${motivos} fams=${fams} show=${show} />`}`;

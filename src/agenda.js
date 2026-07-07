@@ -1,6 +1,7 @@
 import { html, useState, useEffect, useMemo, sb, norm, toISO, fmtBR, nextSunday, Spinner, Empty, Modal } from './core.js';
 import { Relatorios, Planilha } from './agenda-relatorios.js';
 import { IcLivro, IcImprimir, IcVoltar, IcMais, IcFechar, IcOlho } from './icons.js';
+import { HINOS } from './hinos.js';
 
 export const SECOES = {
   abertura:     'Abertura',
@@ -77,6 +78,43 @@ export function PersonPicker({ membros, membroId, nomeLivre, onPick }) {
           <div key=${m.id} onMouseDown=${e => { e.preventDefault(); onPick({ membro_id: m.id, nome_livre: '' }); setQ(null); }}
             style=${{ padding: '9px 12px', fontSize: 13, color: 'var(--tinta)', cursor: 'pointer', borderBottom: '1px solid var(--linha2)' }}>
             ${m.nome}
+          </div>`)}
+      </div>`}
+  </div>`;
+}
+
+// ─── Seletor de hino com autocompletar do hinário oficial ───────────────
+function HinoPicker({ valor, onChange }) {
+  const [q, setQ] = useState(null);
+  const editando = q !== null;
+  const sugestoes = useMemo(() => {
+    if (!editando || q.trim().length < 1) return [];
+    const nq = norm(q);
+    return HINOS.filter(h => String(h.n).startsWith(nq) || norm(h.nome).includes(nq)).slice(0, 8);
+  }, [q, editando]);
+
+  const confirmarTexto = () => {
+    if (q === null) return;
+    const t = q.trim();
+    if (t !== valor) onChange(t);
+    setQ(null);
+  };
+
+  return html`
+  <div style=${{ position: 'relative' }}>
+    <input class="inp" style=${{ fontSize: 13 }} placeholder="Nº ou nome do hino…"
+      value=${editando ? q : valor}
+      onFocus=${() => setQ(valor)}
+      onInput=${e => setQ(e.target.value)}
+      onBlur=${confirmarTexto}
+      onKeyDown=${e => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }} />
+    ${sugestoes.length > 0 && html`
+      <div style=${{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 30, background: '#FFF',
+        border: '1px solid var(--linha)', borderRadius: 10, boxShadow: '0 6px 18px rgba(35,40,46,.14)', overflow: 'hidden', maxHeight: 240, overflowY: 'auto' }}>
+        ${sugestoes.map(h => html`
+          <div key=${h.n} onMouseDown=${e => { e.preventDefault(); onChange(`${h.n} - ${h.nome}`); setQ(null); }}
+            style=${{ padding: '9px 12px', fontSize: 13, color: 'var(--tinta)', cursor: 'pointer', borderBottom: '1px solid var(--linha2)' }}>
+            ${h.n} - ${h.nome}
           </div>`)}
       </div>`}
   </div>`;
@@ -188,9 +226,8 @@ function Editor({ perfil, show, agenda, membros, onVoltar, onLeitura }) {
               ? html`<${PersonPicker} membros=${membros} membroId=${item.membro_id} nomeLivre=${item.nome_livre}
                   onPick=${p => salvarItem(item.id, p)} />`
               : item.tipo === 'hino'
-                ? html`<input class="inp" style=${{ fontSize: 13 }} placeholder="Nº e nome do hino — ex: 09 - Graças damos, ó Deus, por um profeta"
-                    value=${item.conteudo} onInput=${e => setItens(a => a.map(i => i.id === item.id ? { ...i, conteudo: e.target.value } : i))}
-                    onBlur=${e => salvarItem(item.id, { conteudo: e.target.value })} />`
+                ? html`<${HinoPicker} valor=${item.conteudo}
+                    onChange=${v => { setItens(a => a.map(i => i.id === item.id ? { ...i, conteudo: v } : i)); salvarItem(item.id, { conteudo: v }); }} />`
                 : html`<textarea class="inp" rows="2" style=${{ fontSize: 13, resize: 'vertical' }} placeholder="Escreva aqui…"
                     value=${item.conteudo} onInput=${e => setItens(a => a.map(i => i.id === item.id ? { ...i, conteudo: e.target.value } : i))}
                     onBlur=${e => salvarItem(item.id, { conteudo: e.target.value })}></textarea>`}
@@ -223,7 +260,7 @@ function NovoItem({ onAdd, onCancel }) {
   </div>`;
 }
 
-// ─── Modo condução (leitura limpa + impressão) ───────────────────────────
+// ─── Modo condução (leitura para o púlpito + impressão semanal) ──────────
 function Leitura({ perfil, agenda, membros, onVoltar }) {
   const [itens, setItens] = useState(null);
   useEffect(() => {
@@ -239,30 +276,32 @@ function Leitura({ perfil, agenda, membros, onVoltar }) {
       <button class="btn btn-s" style=${{ fontSize: 12 }} onClick=${onVoltar}><${IcVoltar} size=${14} /> Editar</button>
       <button class="btn btn-p" style=${{ fontSize: 12 }} onClick=${() => window.print()}><${IcImprimir} size=${14} /> Imprimir</button>
     </div>
-    <div style=${{ textAlign: 'center', marginBottom: 18 }}>
-      <div class="serif" style=${{ fontSize: 13, fontWeight: 700, color: 'var(--dourado)', textTransform: 'uppercase', letterSpacing: 2 }}>Reunião Sacramental</div>
-      <div class="serif" style=${{ fontSize: 24, fontWeight: 700, marginTop: 2, color: 'var(--azul)' }}>${perfil.alas?.nome || ''}</div>
-      <div style=${{ fontSize: 14, color: 'var(--tinta2)', marginTop: 3 }}>${fmtBR(agenda.data)}</div>
+    <div class="folha-leitura">
+      <div style=${{ textAlign: 'center', marginBottom: 26 }}>
+        <div class="serif" style=${{ fontSize: 13, fontWeight: 700, color: 'var(--dourado)', textTransform: 'uppercase', letterSpacing: 2.5 }}>Reunião Sacramental</div>
+        <div class="serif" style=${{ fontSize: 26, fontWeight: 700, marginTop: 4, color: 'var(--azul)' }}>${perfil.alas?.nome || ''}</div>
+        <div style=${{ fontSize: 14, color: 'var(--tinta2)', marginTop: 4 }}>${fmtBR(agenda.data)}</div>
+      </div>
+      ${Object.entries(SECOES).map(([sec, nomeSec]) => {
+        const daSecao = itens.filter(i => i.secao === sec)
+          .filter(i => ehPessoa(i.tipo) ? nomeDe(i) : i.conteudo.trim());
+        if (daSecao.length === 0) return null;
+        return html`
+        <div key=${sec} style=${{ marginBottom: 22 }}>
+          <div class="serif secao-titulo" style=${{ fontSize: 13, fontWeight: 700, color: 'var(--azul)', textTransform: 'uppercase', letterSpacing: 2, textAlign: 'center', marginBottom: 4 }}>${nomeSec}</div>
+          ${daSecao.map((i, idx) => html`
+            <div key=${i.id} class="item-leitura" style=${idx % 2 === 1 ? { background: 'var(--papel)' } : {}}>
+              <div class="rotulo-leitura">${i.rotulo}</div>
+              <div class="conteudo-leitura">${ehPessoa(i.tipo) ? nomeDe(i) : i.conteudo}</div>
+            </div>`)}
+        </div>`;
+      })}
     </div>
-    ${Object.entries(SECOES).map(([sec, nomeSec]) => {
-      const daSecao = itens.filter(i => i.secao === sec)
-        .filter(i => ehPessoa(i.tipo) ? nomeDe(i) : i.conteudo.trim());
-      if (daSecao.length === 0) return null;
-      return html`
-      <div key=${sec} style=${{ marginBottom: 20 }}>
-        <div class="serif" style=${{ fontSize: 12, fontWeight: 700, color: 'var(--azul)', textTransform: 'uppercase', letterSpacing: 1.5, borderBottom: '1px solid var(--linha)', paddingBottom: 4, marginBottom: 8 }}>${nomeSec}</div>
-        ${daSecao.map(i => html`
-          <div key=${i.id} style=${{ display: 'flex', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--linha2)', alignItems: 'baseline' }}>
-            <span style=${{ fontSize: 13, fontWeight: 600, color: 'var(--tinta3)', minWidth: 150, flexShrink: 0 }}>${i.rotulo}</span>
-            <span class="serif" style=${{ fontSize: 16, color: 'var(--tinta)', whiteSpace: 'pre-wrap' }}>${ehPessoa(i.tipo) ? nomeDe(i) : i.conteudo}</span>
-          </div>`)}
-      </div>`;
-    })}
   </div>`;
 }
 
 // ─── Módulo principal ────────────────────────────────────────────────────
-export function Agenda({ perfil, show }) {
+export function Agenda({ perfil, show, readOnly }) {
   const [aba, setAba] = useState('agendas');
   const [agendas, setAgendas] = useState(null);
   const [membros, setMembros] = useState([]);
@@ -301,8 +340,9 @@ export function Agenda({ perfil, show }) {
   if (!agendas) return html`<${Spinner}/>`;
 
   if (atual) {
-    return modo === 'leitura'
-      ? html`<${Leitura} perfil=${perfil} agenda=${atual} membros=${membros} onVoltar=${() => setModo('editor')} />`
+    // Quem só pode visualizar nunca edita a agenda — vai direto para a leitura.
+    return (modo === 'leitura' || readOnly)
+      ? html`<${Leitura} perfil=${perfil} agenda=${atual} membros=${membros} onVoltar=${() => { setAtual(null); carregar(); }} />`
       : html`<${Editor} perfil=${perfil} show=${show} agenda=${atual} membros=${membros}
           onVoltar=${() => { setAtual(null); carregar(); }} onLeitura=${() => setModo('leitura')} />`;
   }
@@ -317,7 +357,7 @@ export function Agenda({ perfil, show }) {
     </div>
 
     ${aba === 'agendas' && html`
-      ${criando ? html`
+      ${!readOnly && (criando ? html`
         <div class="card" style=${{ padding: 14 }}>
           <label class="lbl" style=${{ marginTop: 0 }}>Data da reunião</label>
           <input class="inp" type="date" value=${novaData} onInput=${e => setNovaData(e.target.value)} />
@@ -326,7 +366,7 @@ export function Agenda({ perfil, show }) {
             <button class="btn btn-p" style=${{ flex: 1 }} onClick=${criarAgenda}>Criar com modelo padrão</button>
           </div>
         </div>` : html`
-        <button class="btn btn-p" style=${{ width: '100%', marginBottom: 12 }} onClick=${() => setCriando(true)}><${IcMais} size=${14} /> Nova agenda</button>`}
+        <button class="btn btn-p" style=${{ width: '100%', marginBottom: 12 }} onClick=${() => setCriando(true)}><${IcMais} size=${14} /> Nova agenda</button>`)}
       ${agendas.length === 0 && html`<${Empty} msg="Nenhuma agenda ainda. Crie a primeira — ela já vem com o modelo da ala." />`}
       ${agendas.map(ag => html`
         <div key=${ag.id} class="card" style=${{ padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
@@ -335,9 +375,9 @@ export function Agenda({ perfil, show }) {
             <div style=${{ fontSize: 11, color: 'var(--tinta3)' }}>${ag.frequencia ? `Frequência: ${ag.frequencia}` : 'Frequência não informada'}</div>
           </div>
           <button class="btn btn-s" style=${{ fontSize: 12 }} onClick=${() => { setAtual(ag); setModo('leitura'); }}><${IcOlho} size=${14} /> Ver</button>
-          <button style=${{ color: 'var(--vermelho)', fontSize: 15, padding: 4 }} onClick=${() => excluirAgenda(ag)}><${IcFechar} size=${15} /></button>
+          ${!readOnly && html`<button style=${{ color: 'var(--vermelho)', fontSize: 15, padding: 4 }} onClick=${() => excluirAgenda(ag)}><${IcFechar} size=${15} /></button>`}
         </div>`)}`}
 
     ${aba === 'relatorios' && html`<${Relatorios} perfil=${perfil} membros=${membros} />`}
-    ${aba === 'planilha' && html`<${Planilha} perfil=${perfil} show=${show} membros=${membros} onImport=${carregar} />`}`;
+    ${aba === 'planilha' && html`<${Planilha} perfil=${perfil} show=${show} membros=${membros} onImport=${carregar} readOnly=${readOnly} />`}`;
 }

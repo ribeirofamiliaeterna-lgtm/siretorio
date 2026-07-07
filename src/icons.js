@@ -45,3 +45,5 @@ export const IcPlanilha = I('<rect x="4" y="3" width="16" height="18" rx="2"/><p
 export const IcRelogio = I('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>');
 export const IcLink = I('<path d="M10 13.5a4 4 0 0 0 6 .5l3-3a4 4 0 0 0-5.6-5.6l-1.7 1.7"/><path d="M14 10.5a4 4 0 0 0-6-.5l-3 3a4 4 0 0 0 5.6 5.6l1.7-1.7"/>');
 export const IcOlho = I('<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>');
+export const IcLixeira = I('<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/><path d="M10 11v6M14 11v6"/>');
+export const IcEscudo = I('<path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z"/>');

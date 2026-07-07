@@ -1,12 +1,17 @@
 import { html, useState, useEffect, sb, fmtBR, Spinner, Modal, Chip } from './core.js';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
-import { IcMais, IcPessoa, IcChave } from './icons.js';
+import { IcMais, IcPessoa, IcChave, IcLixeira, IcEscudo } from './icons.js';
 
 // Cliente auxiliar só para criar contas — não toca na sessão do master.
 const sbAux = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  auth: { persistSession: false, autoRefreshToken: false, storageKey: 'siretorio-aux' },
+  auth: { persistSession: false, autoRefreshToken: false, storageKey: 'painel-gestao-aux' },
 });
+
+const MODULOS = [
+  ['dashboard', 'Painel'], ['agenda', 'Agenda'], ['frequencia', 'Frequência'],
+  ['diretorio', 'Diretório'], ['qualificacao', 'Qualificação'], ['transmissao', 'Transmissão'],
+];
 
 function NovaAla({ onClose, onSaved, show }) {
   const [nome, setNome] = useState('');
@@ -89,7 +94,7 @@ function NovoAcesso({ ala, onClose, onSaved, show }) {
         Este projeto exige confirmação de e-mail: a pessoa precisa clicar no link enviado para ${feito.email} antes de entrar.</div>`}
     </div>
     <button class="btn btn-s" style=${{ width: '100%', marginTop: 14 }}
-      onClick=${() => { navigator.clipboard?.writeText(`Acesso ao Siretório — ${ala.nome}\nEndereço: ${location.origin}${location.pathname}\nE-mail: ${feito.email}\nSenha provisória: ${feito.senha}`); show('Dados copiados.'); }}>
+      onClick=${() => { navigator.clipboard?.writeText(`Acesso ao Painel de Gestão — ${ala.nome}\nEndereço: ${location.origin}${location.pathname}\nE-mail: ${feito.email}\nSenha provisória: ${feito.senha}`); show('Dados copiados.'); }}>
       Copiar dados de acesso
     </button>
     <button class="btn btn-p" style=${{ width: '100%', marginTop: 8 }} onClick=${onClose}>Concluir</button>
@@ -118,11 +123,58 @@ function NovoAcesso({ ala, onClose, onSaved, show }) {
   <//>`;
 }
 
+// ─── Permissões por módulo de um usuário da ala ──────────────────────────
+function PermissoesUsuario({ perfil, onClose, show }) {
+  const [perms, setPerms] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    sb.from('permissoes_perfil').select('modulo, nivel').eq('perfil_id', perfil.id)
+      .then(({ data }) => {
+        const porModulo = Object.fromEntries((data || []).map(p => [p.modulo, p.nivel]));
+        setPerms(Object.fromEntries(MODULOS.map(([m]) => [m, porModulo[m] || 'editar'])));
+      });
+  }, [perfil.id]);
+
+  const salvar = async () => {
+    setBusy(true);
+    const linhas = MODULOS.map(([m]) => ({ perfil_id: perfil.id, modulo: m, nivel: perms[m] }));
+    const { error } = await sb.from('permissoes_perfil').upsert(linhas, { onConflict: 'perfil_id,modulo' });
+    setBusy(false);
+    if (error) return show(error.message, false);
+    show('Permissões salvas.'); onClose();
+  };
+
+  if (!perms) return html`<${Modal} onClose=${onClose}><${Spinner}/><//>`;
+
+  return html`<${Modal} onClose=${onClose}>
+    <div class="titulo-secao">Permissões — ${perfil.nome || perfil.email}</div>
+    <div style=${{ fontSize: 12, color: 'var(--tinta2)', margin: '4px 0 12px' }}>
+      Defina o que esta pessoa pode acessar em cada módulo. Sem restrição definida, o acesso é completo.
+    </div>
+    ${MODULOS.map(([m, l]) => html`
+      <div key=${m} style=${{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--linha2)' }}>
+        <span style=${{ fontSize: 13, fontWeight: 600 }}>${l}</span>
+        <select class="inp" style=${{ width: 'auto', padding: '6px 10px', fontSize: 12 }}
+          value=${perms[m]} onChange=${e => setPerms(o => ({ ...o, [m]: e.target.value }))}>
+          <option value="nenhum">Sem acesso</option>
+          <option value="visualizar">Somente visualizar</option>
+          <option value="editar">Visualizar e editar</option>
+        </select>
+      </div>`)}
+    <div style=${{ display: 'flex', gap: 8, marginTop: 16 }}>
+      <button class="btn btn-s" style=${{ flex: 1 }} onClick=${onClose}>Cancelar</button>
+      <button class="btn btn-p" style=${{ flex: 1, opacity: busy ? .6 : 1 }} disabled=${busy} onClick=${salvar}>Salvar permissões</button>
+    </div>
+  <//>`;
+}
+
 export function Master({ perfil, show }) {
   const [linhas, setLinhas] = useState(null);
   const [perfis, setPerfis] = useState([]);
   const [nova, setNova] = useState(false);
   const [acessoPara, setAcessoPara] = useState(null);
+  const [permPara, setPermPara] = useState(null);
 
   const carregar = async () => {
     const [{ data: alas }, { data: fams }, { data: membros }, { data: reunioes }, { data: presencas }, { data: pf }] = await Promise.all([
@@ -149,6 +201,20 @@ export function Master({ perfil, show }) {
     }));
   };
   useEffect(() => { carregar(); }, []);
+
+  const resetarSenha = async u => {
+    if (!confirm(`Enviar e-mail de redefinição de senha para ${u.email}?`)) return;
+    const { error } = await sbAux.auth.resetPasswordForEmail(u.email);
+    if (error) return show(error.message, false);
+    show('E-mail de redefinição enviado.');
+  };
+
+  const revogarAcesso = async u => {
+    if (!confirm(`Revogar o acesso de ${u.nome || u.email} a esta ala? A pessoa deixará de conseguir ver os dados até ser vinculada novamente a uma ala.`)) return;
+    const { error } = await sb.from('profiles').update({ ala_id: null }).eq('id', u.id);
+    if (error) return show(error.message, false);
+    show('Acesso revogado.'); carregar();
+  };
 
   if (!linhas) return html`<${Spinner}/>`;
 
@@ -183,8 +249,21 @@ export function Master({ perfil, show }) {
           <div style=${{ fontSize: 11, fontWeight: 600, color: 'var(--tinta3)', marginBottom: 4, letterSpacing: '.3px', textTransform: 'uppercase' }}>Acessos desta ala</div>
           ${usuarios.length === 0 && html`<div style=${{ fontSize: 12, color: 'var(--tinta3)' }}>Nenhum usuário vinculado ainda.</div>`}
           ${usuarios.map(u => html`
-            <div key=${u.id} style=${{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, color: 'var(--tinta2)', padding: '3px 0' }}>
-              <${IcPessoa} size=${13} /> ${u.nome || '(sem nome)'} · ${u.email}
+            <div key=${u.id} style=${{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontSize: 12.5, color: 'var(--tinta2)', padding: '6px 0', borderBottom: '1px solid var(--linha2)', flexWrap: 'wrap' }}>
+              <span style=${{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+                <${IcPessoa} size=${13} /> ${u.nome || '(sem nome)'} · ${u.email}
+              </span>
+              <div style=${{ display: 'flex', gap: 5 }}>
+                <button class="btn btn-s" style=${{ padding: '4px 8px', fontSize: 11 }} title="Permissões por módulo" onClick=${() => setPermPara(u)}>
+                  <${IcEscudo} size=${12} /> Permissões
+                </button>
+                <button class="btn btn-s" style=${{ padding: '4px 8px', fontSize: 11 }} title="Enviar redefinição de senha" onClick=${() => resetarSenha(u)}>
+                  <${IcChave} size=${12} /> Redefinir senha
+                </button>
+                <button class="btn btn-d" style=${{ padding: '4px 8px', fontSize: 11 }} title="Revogar acesso" onClick=${() => revogarAcesso(u)}>
+                  <${IcLixeira} size=${12} /> Revogar
+                </button>
+              </div>
             </div>`)}
         </div>
       </div>`;
@@ -208,5 +287,6 @@ export function Master({ perfil, show }) {
           </div>`)}
       </div>`}
     ${nova && html`<${NovaAla} onClose=${() => setNova(false)} onSaved=${carregar} show=${show} />`}
-    ${acessoPara && html`<${NovoAcesso} ala=${acessoPara} onClose=${() => setAcessoPara(null)} onSaved=${carregar} show=${show} />`}`;
+    ${acessoPara && html`<${NovoAcesso} ala=${acessoPara} onClose=${() => setAcessoPara(null)} onSaved=${carregar} show=${show} />`}
+    ${permPara && html`<${PermissoesUsuario} perfil=${permPara} onClose=${() => setPermPara(null)} show=${show} />`}`;
 }
