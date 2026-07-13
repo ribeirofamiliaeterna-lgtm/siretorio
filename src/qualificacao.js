@@ -1,6 +1,6 @@
-import { html, useState, useEffect, useMemo, sb, norm, phone, Spinner, Empty, Chip, InfoTip, STATUS_QUAL, fmtBR } from './core.js';
+import { html, useState, useEffect, useMemo, sb, norm, phone, toISO, Spinner, Empty, Chip, InfoTip, STATUS_QUAL, fmtBR, exportarExcel, exportarPDF, tabelaHTML } from './core.js';
 import { setorNome } from './diretorio.js';
-import { IcTelefone, IcWhats } from './icons.js';
+import { IcTelefone, IcWhats, IcBaixar, IcImprimir } from './icons.js';
 
 const CORES_SETOR = ['#16436B', '#0F5C8C', '#9A7B3F', '#2F6B4F', '#96372F', '#8F6A24', '#5A6068', '#8A9099'];
 
@@ -128,6 +128,114 @@ function CardQual({ f, ms, q, onUpd, show, readOnly }) {
   </div>`;
 }
 
+const STATUS_OPCOES = [['pendente', 'Pendentes'], ['residente', 'Residem'], ['saiu', 'Saíram']];
+
+// ─── Relatório exportável (Excel/PDF) com filtro livre por status/setor/busca ──
+function RelatorioQual({ perfil, fams, quals, porFamilia, show }) {
+  const [status, setStatus] = useState({ pendente: true, residente: true, saiu: true });
+  const [setor, setSetor] = useState('todos');
+  const [busca, setBusca] = useState('');
+
+  const setores = useMemo(() => [...new Set(fams.map(f => setorNome(f.setor)).filter(s => s !== '—'))].sort(), [fams]);
+
+  const filtradas = useMemo(() => {
+    const q = norm(busca);
+    return fams.filter(f => {
+      const st = quals[f.id]?.status || 'pendente';
+      if (!status[st]) return false;
+      if (setor !== 'todos' && setorNome(f.setor) !== setor) return false;
+      if (!q) return true;
+      return norm(`${f.sobrenome} ${f.chefe} ${f.endereco}`).includes(q)
+        || (porFamilia.get(f.id) || []).some(m => norm(m.nome).includes(q));
+    }).sort((a, b) => a.sobrenome.localeCompare(b.sobrenome));
+  }, [fams, quals, status, setor, busca, porFamilia]);
+
+  const linhaExport = f => {
+    const q = quals[f.id];
+    const s = q?.status || 'pendente';
+    return [
+      f.sobrenome, f.chefe, f.telefone, f.endereco,
+      setorNome(f.setor) === '—' ? '' : setorNome(f.setor),
+      (porFamilia.get(f.id) || []).map(m => m.nome).join(', '),
+      STATUS_QUAL[s].l,
+      q?.nota || '',
+      q?.atualizado_em ? fmtBR(q.atualizado_em.slice(0, 10)) : '',
+    ];
+  };
+  const CABECALHO = ['Família', 'Chefe', 'Telefone', 'Endereço', 'Setor', 'Membros', 'Status', 'Observação', 'Última atualização'];
+
+  const nomeFiltro = STATUS_OPCOES.filter(([k]) => status[k]).map(([, l]) => l).join(', ') || 'nenhum';
+
+  const excel = () => exportarExcel(`qualificacao-${perfil.alas?.slug || 'ala'}-${toISO(new Date())}.xlsx`,
+    [{ nome: 'Qualificação', linhas: [CABECALHO, ...filtradas.map(linhaExport)] }]);
+
+  const pdf = () => exportarPDF(
+    `Qualificação da ala — ${perfil.alas?.nome || ''}`,
+    `${filtradas.length} família(s) · Status: ${nomeFiltro}${setor !== 'todos' ? ` · Setor: ${setor}` : ''}`,
+    tabelaHTML(CABECALHO, filtradas.map(linhaExport)));
+
+  return html`
+    <div class="card" style=${{ padding: 14 }}>
+      <div class="titulo-secao" style=${{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        Relatório de qualificação
+        <${InfoTip} texto="Combine status, setor e busca para gerar o relatório exato que você precisa — por exemplo, só as famílias que saíram da área, ou todas com observações registradas." />
+      </div>
+      <div style=${{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 10 }}>
+        ${STATUS_OPCOES.map(([k, l]) => html`
+          <label key=${k} style=${{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
+            <input type="checkbox" checked=${status[k]} onChange=${e => setStatus(s => ({ ...s, [k]: e.target.checked }))} />
+            ${l}
+          </label>`)}
+      </div>
+      <div style=${{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+        <div style=${{ flex: '2 1 200px' }}>
+          <label class="lbl" style=${{ marginTop: 0 }}>Buscar</label>
+          <input class="inp" type="search" placeholder="Família, membro ou endereço…" value=${busca} onInput=${e => setBusca(e.target.value)} />
+        </div>
+        <div style=${{ flex: '1 1 160px' }}>
+          <label class="lbl" style=${{ marginTop: 0 }}>Setor</label>
+          <select class="inp" value=${setor} onChange=${e => setSetor(e.target.value)}>
+            <option value="todos">Todos os setores</option>
+            ${setores.map(s => html`<option key=${s} value=${s}>${s}</option>`)}
+          </select>
+        </div>
+      </div>
+      <div style=${{ display: 'flex', gap: 8, marginTop: 12 }}>
+        <button class="btn btn-s" style=${{ flex: 1, fontSize: 12.5 }} onClick=${excel} disabled=${filtradas.length === 0}>
+          <${IcBaixar} size=${14} /> Excel
+        </button>
+        <button class="btn btn-s" style=${{ flex: 1, fontSize: 12.5 }} onClick=${pdf} disabled=${filtradas.length === 0}>
+          <${IcImprimir} size=${14} /> PDF
+        </button>
+      </div>
+    </div>
+
+    <div style=${{ display: 'flex', gap: 8, margin: '10px 0' }}>
+      <div class="kpi"><div class="v">${filtradas.length}</div><div class="l">Famílias no filtro</div></div>
+    </div>
+
+    ${filtradas.length === 0 && html`<${Empty} msg="Nenhuma família neste filtro." />`}
+    ${filtradas.slice(0, 200).map(f => {
+      const q = quals[f.id];
+      const s = q?.status || 'pendente';
+      const v = STATUS_QUAL[s];
+      return html`
+      <div key=${f.id} class="card" style=${{ padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, flexWrap: 'wrap' }}>
+        <div style=${{ minWidth: 0 }}>
+          <div style=${{ fontWeight: 600, fontSize: 13 }}>Família ${f.sobrenome}
+            ${f.setor && html` <${Chip} bg="var(--azul-claro)" t="var(--azul)">${setorNome(f.setor)}<//>`}</div>
+          <div style=${{ fontSize: 11, color: 'var(--tinta3)' }}>${f.chefe} · ${f.endereco}</div>
+          ${q?.nota && html`<div style=${{ fontSize: 11.5, color: 'var(--tinta2)', marginTop: 3 }}>“${q.nota}”</div>`}
+        </div>
+        <${Chip} bg=${v.bg} t=${v.t} b=${v.b}>${v.l}<//>
+      </div>`;
+    })}
+    ${filtradas.length > 200 && html`
+      <div style=${{ fontSize: 11.5, color: 'var(--tinta3)', textAlign: 'center', margin: '8px 0' }}>
+        Mostrando 200 de ${filtradas.length} famílias — refine o filtro ou exporte para ver todas.
+      </div>`}`;
+}
+
 export function Qualificacao({ perfil, show, readOnly }) {
   const [aba, setAba] = useState('painel');
   const [fams, setFams] = useState(null);
@@ -181,9 +289,12 @@ export function Qualificacao({ perfil, show, readOnly }) {
     <div class="seg" style=${{ marginBottom: 12 }}>
       <button class=${aba === 'painel' ? 'on' : ''} onClick=${() => setAba('painel')}>Painel</button>
       <button class=${aba === 'familias' ? 'on' : ''} onClick=${() => setAba('familias')}>Famílias</button>
+      <button class=${aba === 'relatorio' ? 'on' : ''} onClick=${() => setAba('relatorio')}>Relatório</button>
     </div>
 
     ${aba === 'painel' && html`<${PainelQual} fams=${fams} quals=${quals} />`}
+
+    ${aba === 'relatorio' && html`<${RelatorioQual} perfil=${perfil} fams=${fams} quals=${quals} porFamilia=${porFamilia} show=${show} />`}
 
     ${aba === 'familias' && html`
       <div class="seg" style=${{ marginBottom: 10 }}>
